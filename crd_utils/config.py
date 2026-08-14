@@ -1,0 +1,169 @@
+"""Configuration loading, validation, and run-time snapshot utilities.
+
+The pipeline intentionally keeps target-specific values out of the science
+functions. A target configuration is an ordinary Python file so that units,
+comments, and derived path definitions remain transparent to the researcher.
+This module loads that file into a read-only-ish namespace, validates the
+entries needed by the pipeline, and writes a verbatim snapshot into each run
+folder.
+
+Why snapshot the configuration?
+-------------------------------
+A result such as a population map is only scientifically reproducible if we can
+recover the exact velocity-grid resolution, fraction-grid spacing, polynomial
+degree, PSF/LSF settings, convergence tolerances, and input paths used to make
+it. Git history alone is insufficient because users can rerun old code with a
+new configuration. Every run therefore keeps its own copy.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+import json
+import shutil
+from types import ModuleType
+from typing import Any, Iterable
+
+
+REQUIRED_CONFIG_KEYS = (
+    "TARGET_NAME",
+    "REDSHIFT",
+    "BL_CUBE",
+    "RH3_CUBE",
+    "BL_MASTER_ARC",
+    "RH3_MASTER_ARC",
+    "PYMORPH_VAC",
+    "XSL_TEMPLATE_LIBRARY",
+    "RUNS_ROOT",
+)
+
+
+@dataclass(frozen=True)
+class PipelineConfig:
+    """Thin wrapper around the loaded Python configuration module.
+
+    Attribute access is forwarded to the underlying module. The wrapper keeps
+    the source path so it can be copied into a run directory.
+    """
+
+    module: ModuleType
+    source_path: Path
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.module, name)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return public uppercase configuration values as a plain dictionary."""
+        return {
+            key: value
+            for key, value in vars(self.module).items()
+            if key.isupper() and not key.startswith("_")
+        }
+
+
+def load_config(path: str | Path, *, validate: bool = True, strict_paths: bool = True) -> PipelineConfig:
+    """Load a target configuration from an arbitrary Python file.
+
+    Parameters
+    ----------
+    path
+        Path to the target-specific Python configuration file.
+    validate
+        Run structural validation immediately after loading.
+    strict_paths
+        If True, required science/calibration paths must already exist. Set to
+        False for dry runs, documentation builds, or unit tests that are only
+        checking configuration syntax.
+    """
+    source = Path(path).expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(f"Configuration file does not exist: {source}")
+
+    spec = spec_from_file_location("crd_target_config", source)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not construct import specification for {source}")
+
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cfg = PipelineConfig(module=module, source_path=source)
+
+    if validate:
+        validate_config(cfg, strict_paths=strict_paths)
+    return cfg
+
+
+def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
+    """Validate the entries required before a science run can begin.
+
+    This function deliberately performs only configuration-level checks. More
+    specialized scientific validation (wavelength conventions, FITS extensions,
+    template/data LSF compatibility, etc.) belongs in ``crd_utils.validation``
+    and is executed by the relevant pipeline stage.
+    """
+    missing = [key for key in REQUIRED_CONFIG_KEYS if not hasattr(cfg.module, key)]
+    if missing:
+        raise ValueError("Missing required configuration keys: " + ", ".join(missing))
+
+    if cfg.REDSHIFT is None:
+        raise ValueError("REDSHIFT must be specified in the target configuration.")
+    if float(cfg.REDSHIFT) < 0:
+        raise ValueError("REDSHIFT must be non-negative.")
+
+    if strict_paths:
+        path_keys = (
+            "BL_CUBE",
+            "RH3_CUBE",
+            "BL_MASTER_ARC",
+            "RH3_MASTER_ARC",
+            "PYMORPH_VAC",
+            "XSL_TEMPLATE_LIBRARY",
+        )
+        absent = []
+        for key in path_keys:
+            value = Path(getattr(cfg, key)).expanduser()
+            if not value.exists():
+                absent.append(f"{key}={value}")
+        if absent:
+            raise FileNotFoundError(
+                "Required input path(s) do not exist:\n  - " + "\n  - ".join(absent)
+            )
+
+    if getattr(cfg, "RING_DELTA_FACTOR", 0.5) <= 0:
+        raise ValueError("RING_DELTA_FACTOR must be positive.")
+    if getattr(cfg, "GRID_EDGE_WARNING_CELLS", 2) < 0:
+        raise ValueError("GRID_EDGE_WARNING_CELLS cannot be negative.")
+    if getattr(cfg, "N_DIRECT", 200) < 1:
+        raise ValueError("N_DIRECT must be >= 1.")
+
+
+def snapshot_config(cfg: PipelineConfig, destination_dir: str | Path) -> Path:
+    """Copy the exact configuration file into a run directory."""
+    destination_dir = Path(destination_dir)
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    destination = destination_dir / "config_snapshot.py"
+    shutil.copy2(cfg.source_path, destination)
+    return destination
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert common configuration values to JSON-serializable objects."""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    return repr(value)
+
+
+def write_config_manifest(cfg: PipelineConfig, destination: str | Path) -> Path:
+    """Write public configuration values to JSON for machine-readable provenance."""
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = {key: _json_safe(value) for key, value in cfg.as_dict().items()}
+    destination.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return destination
