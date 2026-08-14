@@ -19,9 +19,9 @@ The two KCWI/KCRM arms play complementary roles:
 
 The core methodological idea is to avoid reducing each spatial bin to one independently selected two-component velocity solution. Instead, the RH3 spectrum in each spatial bin is compressed into a profile-likelihood surface
 
-\[
+$$
 \chi_i^2(V_A,V_B,f_{A,\mathrm{RH3}}),
-\]
+$$
 
 and a global two-disk rotation model selects a spatially coherent trajectory through all of those surfaces. The family of RH3-supported kinematic states is then propagated into the BL stellar-population decomposition.
 
@@ -45,7 +45,7 @@ The driver scripts should stay compact. Detailed calculations belong in the `crd
 
 A schematic flow is
 
-\[
+$$
 \mathrm{BL+RH3\ cubes}
 \rightarrow
 \mathrm{prepared/registered\ cubes}
@@ -61,7 +61,7 @@ A schematic flow is
 \mathrm{BL\ populations}
 \rightarrow
 \mathrm{uncertainties/final\ maps}.
-\]
+$$
 
 ---
 
@@ -137,15 +137,15 @@ The science cubes are assumed to have already passed through the KCWI DRP. Scrip
 
 The pipeline should expose, for each arm:
 
-\[
+$$
 F(x,y,\lambda),
-\]
+$$
 
 an uncertainty or variance cube,
 
-\[
+$$
 \sigma_F(x,y,\lambda),
-\]
+$$
 
 quality/mask information, wavelength coordinates, spatial WCS, spectral resolution metadata, and relevant reduction-frame metadata.
 
@@ -184,9 +184,9 @@ A convention mismatch can mimic a velocity zero-point error and would contaminat
 
 For each arm, construct a robust 2-D continuum image by collapsing clean continuum wavelengths:
 
-\[
+$$
 I(x,y)=\operatorname{median}_{\lambda\in\mathrm{good}}F(x,y,\lambda)
-\]
+$$
 
 or an appropriately weighted equivalent.
 
@@ -221,9 +221,9 @@ The output must allow Script 2 to apply one physical BL-defined PowerBin members
 
 Measure or adopt separate effective delivered PSFs:
 
-\[
+$$
 \mathrm{PSF}_{\mathrm{BL}},\qquad \mathrm{PSF}_{\mathrm{RH3}}.
-\]
+$$
 
 The arms use the same slicer geometry but may not have identical effective PSFs. This matters because using the same geometric PowerBin does not guarantee identical spatial weighting of stellar light in both arms.
 
@@ -235,35 +235,35 @@ The primary LSF comes from unresolved lines in the required master-arc products.
 
 Aim to estimate
 
-\[
+$$
 \mathrm{FWHM}_{\mathrm{inst}}(\lambda,s),
-\]
+$$
 
-where \(s\) is slice/spatial position if the data support measuring a meaningful spatial dependence. If spatial variation is negligible, collapse to a wavelength-only model
+where $s$ is slice/spatial position if the data support measuring a meaningful spatial dependence. If spatial variation is negligible, collapse to a wavelength-only model
 
-\[
+$$
 \mathrm{FWHM}_{\mathrm{inst}}(\lambda).
-\]
+$$
 
 The measured LSF is compared against the XSL template LSF. The required Gaussian template broadening is conceptually
 
-\[
+$$
 \sigma_{\mathrm{conv}}^2
 =
 \sigma_{\mathrm{data}}^2-\sigma_{\mathrm{template}}^2.
-\]
+$$
 
 If the right-hand side is negative, the templates are broader than the data at that wavelength and the pipeline must report this explicitly rather than taking an absolute value or silently forcing a convolution.
 
 ## 4.11 Noise and covariance characterization
 
-The absolute \(\chi^2\) scale matters because later stages use
+The absolute $\chi^2$ scale matters because later stages use
 
-\[
+$$
 L_{\mathrm{rel}}\propto e^{-\Delta\chi^2/2}.
-\]
+$$
 
-If uncertainties are underestimated by a factor \(a\), \(\chi^2\) differences become artificially too large by approximately \(a^{-2}\), producing likelihood basins that are too narrow.
+If uncertainties are underestimated by a factor $a$, $\chi^2$ differences become artificially too large by approximately $a^{-2}$, producing likelihood basins that are too narrow.
 
 Script 1 must therefore characterize:
 
@@ -281,9 +281,9 @@ This is a required precondition for trusting profile-likelihood widths.
 
 PowerBin is run once on BL at the target S/N, initially expected to be around
 
-\[
+$$
 (S/N)_{\mathrm{BL}}\approx40.
-\]
+$$
 
 The resulting membership map is the master spatial grid for both arms.
 
@@ -291,17 +291,17 @@ RH3 is **not** independently PowerBinned in the production analysis.
 
 ## 5.2 Apply identical physical memberships to RH3
 
-For bin \(i\) with member-spaxel set \(\mathcal B_i\), extract
+For bin $i$ with member-spaxel set $\mathcal B_i$, extract
 
-\[
+$$
 F_i^{\mathrm{BL}}(\lambda)
-\]
+$$
 
 and
 
-\[
+$$
 F_i^{\mathrm{RH3}}(\lambda)
-\]
+$$
 
 from the same physical sky region after registration.
 
@@ -332,15 +332,15 @@ BL and RH3 S/N maps use the same color normalization. The default upper limit is
 
 For every PowerBin construct
 
-\[
+$$
 \chi_i^2(V_A,V_B,f_{A,\mathrm{RH3}}).
-\]
+$$
 
 The explicit grid is initially planned at approximately
 
-\[
+$$
 17\times17\times9,
-\]
+$$
 
 but the final grid resolution/extent must pass convergence tests.
 
@@ -348,15 +348,15 @@ but the final grid resolution/extent must pass convergence tests.
 
 At a fixed grid coordinate
 
-\[
+$$
 (V_A,V_B,f_A),
-\]
+$$
 
 those three parameters define the profile coordinate. pPXF optimizes nuisance quantities such as
 
-\[
+$$
 \sigma_A,\quad\sigma_B,
-\]
+$$
 
 stellar-template mixtures, and continuum terms.
 
@@ -378,11 +378,11 @@ The RH3-prepared template matrix is produced by:
 
 ## 6.4 No regularization in likelihood fits
 
-Any fit whose \(\chi^2\) enters the RH3 likelihood cube must use
+Any fit whose $\chi^2$ enters the RH3 likelihood cube must use
 
-\[
+$$
 \mathrm{regul}=0.
-\]
+$$
 
 Regularization may later be used to visualize smooth star-formation histories, but not to define the likelihood surfaces.
 
@@ -390,10 +390,10 @@ Regularization may later be used to visualize smooth star-formation histories, b
 
 Storage minimization is not a scientific goal. Save all scalar products that materially help later interpretation, such as:
 
-- \(\chi^2\);
-- reduced \(\chi^2\) where meaningful;
-- \(\sigma_A\);
-- \(\sigma_B\);
+- $\chi^2$;
+- reduced $\chi^2$ where meaningful;
+- $\sigma_A$;
+- $\sigma_B$;
 - fit-status flags;
 - relevant continuum/quality summaries;
 - enough template-weight information to reconstruct scientifically important selected states.
@@ -404,33 +404,33 @@ Full model spectra/template weights may be saved broadly if storage permits; at 
 
 Also fit a single stellar LOSVD per PowerBin to obtain
 
-\[
+$$
 \chi^2_{1\mathrm{comp},i}.
-\]
+$$
 
 The one-vs-two-component statistic can be defined as
 
-\[
+$$
 T_i
 =
 \chi^2_{1\mathrm{comp},i}
 -
 \chi^2_{2\mathrm{comp},i}.
-\]
+$$
 
-A textbook \(\chi^2\) p-value is **not** assumed because mixture-model regularity conditions may fail. Significance/reliability is calibrated from mocks in Script 5/model-selection utilities.
+A textbook $\chi^2$ p-value is **not** assumed because mixture-model regularity conditions may fail. Significance/reliability is calibrated from mocks in Script 5/model-selection utilities.
 
 ## 6.7 Preliminary single-component RH3 maps
 
 Before fixing the final Script-4 radial domain, construct simple single-component RH3 maps
 
-\[
+$$
 V_{\star,\mathrm{single}}(x,y),
 \qquad
 \sigma_{\star,\mathrm{single}}(x,y).
-\]
+$$
 
-These provide a higher-resolution KCWI measurement of the \(2\sigma\) structure than the initial MaNGA map.
+These provide a higher-resolution KCWI measurement of the $2\sigma$ structure than the initial MaNGA map.
 
 ---
 
@@ -442,51 +442,51 @@ Adopt an XookSuut-style non-parametric concentric-ring parameterization rather t
 
 Default radial choices:
 
-\[
+$$
 R_{\mathrm{start}}=1\times\mathrm{FWHM}_{\mathrm{PSF,RH3}},
-\]
+$$
 
-\[
+$$
 \mathrm{ring\_space}\approx\mathrm{FWHM}_{\mathrm{PSF,RH3}},
-\]
+$$
 
-\[
+$$
 \delta=0.5\,\mathrm{ring\_space}.
-\]
+$$
 
 The first free node is therefore one PSF FWHM from the center. Interior to the first node,
 
-\[
+$$
 V_{\mathrm{rot}}(0)=0
-\]
+$$
 
 and the rotation curve is linearly connected to
 
-\[
+$$
 V_{\mathrm{rot}}(R_{\mathrm{start}})=V_1.
-\]
+$$
 
-The nominal annuli with full width \(2\delta\) do not overlap when \(\delta=0.5\,\mathrm{ring\_space}\), but they should not be described as statistically independent because the PSF correlates neighboring spatial information.
+The nominal annuli with full width $2\delta$ do not overlap when $\delta=0.5\,\mathrm{ring\_space}$, but they should not be described as statistically independent because the PSF correlates neighboring spatial information.
 
 ## 7.2 Two outer-radius analyses
 
 Always support two radial extents.
 
-### A. \(2\sigma\)-limited model
+### A. $2\sigma$-limited model
 
-Measure the positive- and negative-side \(2\sigma\) peak radii from the preliminary RH3 single-component dispersion map, using the MaNGA values only as initial guidance.
+Measure the positive- and negative-side $2\sigma$ peak radii from the preliminary RH3 single-component dispersion map, using the MaNGA values only as initial guidance.
 
 Adopt
 
-\[
+$$
 R_{2\sigma,\mathrm{adopted}}
 =
 \max(R_{2\sigma,+},R_{2\sigma,-}).
-\]
+$$
 
 Snap it to the nearest allowed ring center:
 
-\[
+$$
 R_{\mathrm{final}}
 =
 R_{\mathrm{start}}
@@ -497,7 +497,7 @@ R_{\mathrm{start}}
 {\mathrm{ring\_space}}
 \right]
 \mathrm{ring\_space}.
-\]
+$$
 
 ### B. Full-aperture model
 
@@ -507,7 +507,7 @@ The purpose is to test whether the lower-minority-fraction outer data remain con
 
 ### Interpretation
 
-Compare both fits over their common inner radial domain. If the inner rotation curves and global geometry are stable, the full-aperture solution can become the preferred result because it uses all available data. If the solutions disagree materially, the \(2\sigma\)-limited model becomes the safer fiducial solution and the full-aperture run is treated as a robustness test.
+Compare both fits over their common inner radial domain. If the inner rotation curves and global geometry are stable, the full-aperture solution can become the preferred result because it uses all available data. If the solutions disagree materially, the $2\sigma$-limited model becomes the safer fiducial solution and the full-aperture run is treated as a robustness test.
 
 The code should not silently decide based on an undocumented threshold. It should save both solutions and quantify their differences.
 
@@ -515,12 +515,12 @@ The code should not silently decide based on an undocumented threshold. It shoul
 
 Baseline:
 
-\[
+$$
 \Theta=
 \{x_0,y_0,PA,i,V_{\mathrm{sys}},
 V_{A,1}\ldots V_{A,K},
 V_{B,1}\ldots V_{B,K}\}.
-\]
+$$
 
 Both disks share center, PA, inclination, and systemic velocity initially. They have independent non-parametric ring velocities.
 
@@ -543,80 +543,80 @@ This convention must remain fixed across RH3, BL, maps, tables, and reruns.
 
 Use PyMorph disk axis ratio
 
-\[
+$$
 q=b/a
-\]
+$$
 
 and its uncertainty to derive an inclination distribution through
 
-\[
+$$
 \cos^2 i
 =
 \frac{q^2-q_0^2}{1-q_0^2},
-\]
+$$
 
-where \(q_0\) is an assumed intrinsic disk thickness with its own uncertainty.
+where $q_0$ is an assumed intrinsic disk thickness with its own uncertainty.
 
-PyMorph does not directly provide the final inclination uncertainty; that uncertainty is propagated from \(q\), \(q_0\), and their adopted distributions.
+PyMorph does not directly provide the final inclination uncertainty; that uncertainty is propagated from $q$, $q_0$, and their adopted distributions.
 
 Useful PyMorph quantities include disk axis ratio, disk PA, fitted disk center, and their fit errors. The photometric PA is mainly a cross-check because the stellar kinematic PA from `fit_kinematic_pa` is the primary orientation initializer.
 
 The global parameters have sensible bounds/priors:
 
-- \(PA\) informed by the `fit_kinematic_pa` 1σ error;
-- \(i\) informed by the PyMorph-derived distribution;
-- \(x_0,y_0\) constrained around the KCWI continuum/photometric center;
-- \(V_{\mathrm{sys}}\) free within a generous range around the preliminary RH3 estimate.
+- $PA$ informed by the `fit_kinematic_pa` 1σ error;
+- $i$ informed by the PyMorph-derived distribution;
+- $x_0,y_0$ constrained around the KCWI continuum/photometric center;
+- $V_{\mathrm{sys}}$ free within a generous range around the preliminary RH3 estimate.
 
-`fit_kinematic_pa` need not provide a formal \(V_{\mathrm{sys}}\) error; Script 7 will determine the uncertainty through the global-model realization ensemble.
+`fit_kinematic_pa` need not provide a formal $V_{\mathrm{sys}}$ error; Script 7 will determine the uncertainty through the global-model realization ensemble.
 
 ## 7.6 Model projection
 
-For a sky position, transform to disk-plane radius \(R\) and azimuth \(\theta\), linearly interpolate the non-parametric rotation curve, and project
+For a sky position, transform to disk-plane radius $R$ and azimuth $\theta$, linearly interpolate the non-parametric rotation curve, and project
 
-\[
+$$
 V_{\mathrm{LOS}}
 =
 V_{\mathrm{sys}}
 +
 V_{\mathrm{rot}}(R)\sin i\cos\theta.
-\]
+$$
 
-Disk A and B use their own \(V_{\mathrm{rot}}(R)\) curves with opposite rotation senses.
+Disk A and B use their own $V_{\mathrm{rot}}(R)$ curves with opposite rotation senses.
 
 ## 7.7 Bin-integrated model velocities
 
 Do not blindly evaluate only at the PowerBin centroid.
 
-For member spaxels \(p\) in bin \(i\), compute a flux-weighted mean model velocity
+For member spaxels $p$ in bin $i$, compute a flux-weighted mean model velocity
 
-\[
+$$
 \bar V_i
 =
 \frac{\sum_p I_pV_p}{\sum_p I_p},
-\]
+$$
 
 and model-predicted unresolved shear
 
-\[
+$$
 \sigma_{\mathrm{shear},i}^2
 =
 \frac{\sum_p I_p(V_p-\bar V_i)^2}{\sum_p I_p}.
-\]
+$$
 
 PSF effects should be included in the spatial weighting when required. The centroid-only approximation may still be used if diagnostics demonstrate that its difference from the bin-integrated prediction is negligible.
 
 ## 7.8 Global objective
 
-For trial \(\Theta\), predict bin-integrated velocities
+For trial $\Theta$, predict bin-integrated velocities
 
-\[
+$$
 V_{A,i}(\Theta),\qquad V_{B,i}(\Theta).
-\]
+$$
 
 Evaluate/interpolate the RH3 profile-likelihood cube at those velocities and profile over the local RH3 fraction:
 
-\[
+$$
 q_i(\Theta)
 =
 \min_{f_{A,i}}
@@ -626,13 +626,13 @@ V_{A,i}(\Theta),
 V_{B,i}(\Theta),
 f_{A,i}
 \right].
-\]
+$$
 
 Then
 
-\[
+$$
 Q(\Theta)=\sum_i q_i(\Theta).
-\]
+$$
 
 Minimize or sample the global objective while preserving the parameter history.
 
@@ -640,9 +640,9 @@ Minimize or sample the global objective while preserving the parameter history.
 
 The baseline shared geometry is intentionally conservative. Later robustness tests should allow limited alternatives such as
 
-\[
+$$
 PA_A\ne PA_B
-\]
+$$
 
 if scientifically justified, without making the baseline model unnecessarily underconstrained.
 
@@ -656,11 +656,11 @@ The global disk model predicts continuous velocities that generally do not land 
 
 For every bin, rerun pPXF at
 
-\[
+$$
 V_{A,i}^{\mathrm{global}},
 \qquad
 V_{B,i}^{\mathrm{global}}
-\]
+$$
 
 rather than reporting only interpolated nuisance parameters from the coarse grid.
 
@@ -672,9 +672,9 @@ The coarse fraction grid maps the global likelihood topology, but the published 
 
 Around the coarse preferred fraction, rerun an explicit fine grid with default step
 
-\[
+$$
 \Delta f_{A,\mathrm{RH3}}=0.01.
-\]
+$$
 
 A local interval is tried first. If the fine minimum reaches an interval edge, expand the interval automatically; the full physical fraction range can be scanned if needed.
 
@@ -688,11 +688,11 @@ No extrapolation beyond a profile-likelihood cube is allowed.
 
 ## 8.4 Basin identification
 
-The global model provides the continuous \((V_A,V_B)\) location. For discrete basin bookkeeping, locate the nearest velocity-grid cell and choose the RH3 fraction that minimizes \(\chi^2\) at that velocity coordinate. This defines the discrete **anchor cell**.
+The global model provides the continuous $(V_A,V_B)$ location. For discrete basin bookkeeping, locate the nearest velocity-grid cell and choose the RH3 fraction that minimizes $\chi^2$ at that velocity coordinate. This defines the discrete **anchor cell**.
 
 The anchor need not be the global minimum of the individual RH3 cube.
 
-Starting from the anchor, follow decreasing \(\chi^2\) through neighboring 3-D cells until reaching a local minimum. Every finite cell whose downhill path terminates at that same minimum belongs to the selected basin.
+Starting from the anchor, follow decreasing $\chi^2$ through neighboring 3-D cells until reaching a local minimum. Every finite cell whose downhill path terminates at that same minimum belongs to the selected basin.
 
 The baseline implementation can use full immediate 3-D connectivity (26 neighbors in a 3-D grid), but this must be validated on injection/recovery likelihood cubes before publication.
 
@@ -700,29 +700,29 @@ A basin is a topological object. It may contain the whole cube if only one local
 
 ## 8.5 Relative-likelihood weights inside the basin
 
-For selected-basin cell \(c\), define
+For selected-basin cell $c$, define
 
-\[
+$$
 \Delta\chi_c^2
 =
 \chi_c^2-\chi_{\mathrm{basin,min}}^2
-\]
+$$
 
 and
 
-\[
+$$
 w_c
 =
 \exp\left(-\frac{\Delta\chi_c^2}{2}\right).
-\]
+$$
 
 Normalize within the selected basin:
 
-\[
+$$
 p_c
 =
 \frac{w_c}{\sum_{j\in\mathcal B}w_j}.
-\]
+$$
 
 These are **normalized relative-likelihood weights conditional on the selected basin**, not formal Bayesian posterior cell probabilities.
 
@@ -738,13 +738,13 @@ This distinction is central to Script 6.
 
 For the final selected/refined two-component solution, compute the one-vs-two-component statistic
 
-\[
+$$
 T
 =
 \chi^2_{1\mathrm{comp}}
 -
 \chi^2_{2\mathrm{comp}}.
-\]
+$$
 
 Use mocks to derive two distinct quantities:
 
@@ -752,27 +752,27 @@ Use mocks to derive two distinct quantities:
 
 From true one-component mock spectra,
 
-\[
+$$
 p_{\mathrm{false}}
 =
 P(T\ge T_{\mathrm{obs}}\mid\mathrm{true\ one\ component}).
-\]
+$$
 
 ### Two-component recovery probability
 
 From injected true two-component mocks matched/interpolated in
 
-\[
+$$
 S/N,\quad\Delta V,\quad f_A,\quad\sigma_A,\quad\sigma_B,
-\]
+$$
 
 estimate
 
-\[
+$$
 p_{\mathrm{recover}}
 =
 P(\mathrm{successful\ recovery}\mid\mathrm{true\ two\ component,\ conditions}).
-\]
+$$
 
 Do not interpret either quantity as a Bayesian probability that the observed galaxy “is two-component.”
 
@@ -784,20 +784,20 @@ Do not interpret either quantity as a Bayesian probability that the observed gal
 
 Define the BL fraction over the globally adopted usable BL fitting band after consistent template normalization:
 
-\[
+$$
 f_{A,\mathrm{BL}}
 =
 \frac{\sum_jw_{A,j}}
 {\sum_jw_{A,j}+\sum_jw_{B,j}}.
-\]
+$$
 
 The fraction is purely stellar. Gas-template weights are excluded.
 
 Because the two disks may have different stellar populations,
 
-\[
+$$
 f_{A,\mathrm{BL}}\ne f_{A,\mathrm{RH3}}
-\]
+$$
 
 is physically allowed and potentially informative.
 
@@ -805,11 +805,11 @@ is physically allowed and potentially informative.
 
 Fit gas emission simultaneously in BL where relevant:
 
-\[
+$$
 F_{\mathrm{model}}
 =
 F_{\star,A}+F_{\star,B}+F_{\mathrm{gas}}.
-\]
+$$
 
 Gas has its own kinematics and does not contribute to the stellar disk light fraction.
 
@@ -828,8 +828,8 @@ The purpose is to absorb continuum/flux-calibration mismatch without allowing ad
 
 Use a two-stage explicit fraction search:
 
-1. coarse grid with approximately \(\Delta f_A=0.1\);
-2. local refinement near the preferred region with approximately \(\Delta f_A=0.01\).
+1. coarse grid with approximately $\Delta f_A=0.1$;
+2. local refinement near the preferred region with approximately $\Delta f_A=0.01$.
 
 If the fine solution reaches the local refinement edge, expand automatically.
 
@@ -851,13 +851,13 @@ This answers: **How do the BL population inferences change across the family of 
 
 Search for the lowest joint statistic
 
-\[
+$$
 J(c,f_{A,\mathrm{BL}})
 =
 \Delta\chi^2_{\mathrm{RH3},c}
 +
 \Delta\chi^2_{\mathrm{BL}}(c,f_{A,\mathrm{BL}})
-\]
+$$
 
 within the selected physical basin, with deterministic local refinement around the best sampled state.
 
@@ -869,9 +869,9 @@ If the selected RH3 basin contains at most `N_DIRECT` cells (development default
 
 If the basin is larger, draw RH3 states according to
 
-\[
+$$
 p_c\propto e^{-\Delta\chi_c^2/2}.
-\]
+$$
 
 Conceptually, each basin cell has “tickets” in proportion to its RH3 relative-likelihood weight.
 
@@ -881,7 +881,7 @@ After each new sampling batch, recompute population summaries using **all draws 
 
 ## 9.7 Avoid double-counting RH3
 
-If states are drawn according to \(p_{\mathrm{RH3}}(c)\), RH3 has already entered through the sampling frequency. Do **not** multiply each sampled draw by \(L_{\mathrm{RH3}}\) again.
+If states are drawn according to $p_{\mathrm{RH3}}(c)$, RH3 has already entered through the sampling frequency. Do **not** multiply each sampled draw by $L_{\mathrm{RH3}}$ again.
 
 A repeated cell may require only one expensive BL pPXF calculation; its multiplicity is retained when constructing the cumulative sample.
 
@@ -889,11 +889,11 @@ A repeated cell may require only one expensive BL pPXF calculation; its multipli
 
 For a sampled RH3 state, BL supplies
 
-\[
+$$
 L_{\mathrm{BL}}(c,f_A)
 \propto
 \exp\left[-\frac{\Delta\chi^2_{\mathrm{BL}}}{2}\right].
-\]
+$$
 
 Because the proposal draws already follow the RH3 distribution, the BL likelihood reweights the sampled ensemble toward the joint RH3+BL target.
 
@@ -901,37 +901,37 @@ Because the proposal draws already follow the RH3 distribution, the BL likelihoo
 
 After a minimum number of RH3 draws, add batches and recalculate the weighted 16th, 50th, and 84th percentiles of scientifically important quantities, including
 
-\[
+$$
 \log Age_A,\quad\log Age_B,
-\]
+$$
 
-\[
+$$
 [M/H]_A,\quad[M/H]_B,
-\]
+$$
 
-\[
+$$
 f_{A,\mathrm{BL}},
-\]
+$$
 
-\[
+$$
 \Delta\log Age,\quad\Delta[M/H].
-\]
+$$
 
 For each quantity, define the current 68% interval width
 
-\[
+$$
 W=P_{84}-P_{16}.
-\]
+$$
 
 The tolerance is
 
-\[
+$$
 T=\max(T_{\mathrm{floor}},\epsilon W),
-\]
+$$
 
-with development default \(\epsilon=0.05\).
+with development default $\epsilon=0.05$.
 
-Require changes in \(P_{16},P_{50},P_{84}\) to remain below tolerance for several consecutive cumulative-batch comparisons (development default three).
+Require changes in $P_{16},P_{50},P_{84}$ to remain below tolerance for several consecutive cumulative-batch comparisons (development default three).
 
 A human-readable rounded-value stability summary may also be logged, but literal decimal rounding is not the formal stopping rule.
 
@@ -952,9 +952,9 @@ If every basin cell has been evaluated, the result becomes exact over the discre
 Sampling identifies a promising region. Starting from the best sampled joint state:
 
 1. evaluate unevaluated neighboring RH3 cells;
-2. profile/refine \(f_{A,\mathrm{BL}}\);
-3. move to a neighbor if it decreases \(J\);
-4. repeat until no neighbor improves \(J\).
+2. profile/refine $f_{A,\mathrm{BL}}$;
+3. move to a neighbor if it decreases $J$;
+4. repeat until no neighbor improves $J$.
 
 All BL fits are cached, so previously evaluated states are never repeated unnecessarily.
 
@@ -966,19 +966,19 @@ Flag population solutions that accumulate against SSP-library boundaries in age 
 
 For every weighted solution, calculate directly
 
-\[
+$$
 \Delta\log Age
 =
 \log Age_A-\log Age_B
-\]
+$$
 
 and
 
-\[
+$$
 \Delta[M/H]
 =
 [M/H]_A-[M/H]_B.
-\]
+$$
 
 This preserves correlations between the two disk population measurements better than subtracting two separately summarized medians after the fact.
 
@@ -990,7 +990,7 @@ This preserves correlations between the two disk population measurements better 
 
 The gold-standard realization is end-to-end:
 
-\[
+$$
 \mathrm{perturb\ RH3}
 \rightarrow
 \mathrm{RH3\ likelihood}
@@ -1002,7 +1002,7 @@ The gold-standard realization is end-to-end:
 \mathrm{perturb\ BL}
 \rightarrow
 \mathrm{population\ fit}.
-\]
+$$
 
 This captures the fact that BL populations are conditional on uncertain RH3 kinematics.
 
@@ -1012,11 +1012,11 @@ Use the covariance-aware noise model characterized in Script 1 rather than indep
 
 ## 10.3 Monte Carlo count is convergence-driven
 
-Do not choose an enormous fixed value such as \(10^5\) by default. Monte Carlo sampling error falls approximately as
+Do not choose an enormous fixed value such as $10^5$ by default. Monte Carlo sampling error falls approximately as
 
-\[
+$$
 N_{\mathrm{MC}}^{-1/2}.
-\]
+$$
 
 A development strategy is:
 
@@ -1048,8 +1048,8 @@ Noise/covariance realizations through the full inference chain.
 Reasonable alternatives such as:
 
 - ring spacing;
-- \(R_{\mathrm{start}}\);
-- \(R_{\mathrm{final}}\);
+- $R_{\mathrm{start}}$;
+- $R_{\mathrm{final}}$;
 - 2σ-limited versus full-aperture model;
 - inclination prior;
 - PSF uncertainty;
@@ -1069,21 +1069,21 @@ Do not automatically collapse these three categories into one quadrature error b
 
 Every BL PowerBin receives age/metallicity measurements for Disk A and Disk B. Therefore these are valid 2-D maps at PowerBin resolution:
 
-\[
+$$
 Age_A(x,y),\quad Age_B(x,y),
-\]
+$$
 
-\[
+$$
 [M/H]_A(x,y),\quad [M/H]_B(x,y).
-\]
+$$
 
 Also map disk contrasts
 
-\[
+$$
 \Delta\log Age(x,y),
 \qquad
 \Delta[M/H](x,y),
-\]
+$$
 
 and method-robustness differences between anchored and likelihood-propagated solutions.
 
@@ -1101,10 +1101,10 @@ The final per-PowerBin table should contain at least:
 - sky/bin coordinates;
 - deprojected radius;
 - BL and RH3 S/N;
-- \(V_A,V_B\) and uncertainties;
-- \(\sigma_A,\sigma_B\) and uncertainties;
-- \(f_{A,\mathrm{RH3}}\) and uncertainty/likelihood summaries;
-- \(f_{A,\mathrm{BL}}\) and uncertainty/likelihood summaries;
+- $V_A,V_B$ and uncertainties;
+- $\sigma_A,\sigma_B$ and uncertainties;
+- $f_{A,\mathrm{RH3}}$ and uncertainty/likelihood summaries;
+- $f_{A,\mathrm{BL}}$ and uncertainty/likelihood summaries;
 - age and metallicity for both disks;
 - direct disk contrasts;
 - one/two-component mock-calibration metrics;
@@ -1120,9 +1120,9 @@ An Astropy ECSV/FITS table is preferred internally because it preserves metadata
 
 The RH3 grid is a profile likelihood because nuisance parameters are optimized at each explicit coordinate. Therefore
 
-\[
+$$
 w_c=e^{-\Delta\chi_c^2/2}
-\]
+$$
 
 is a **relative-likelihood weight**.
 
@@ -1148,7 +1148,7 @@ The nominal 17×17×9 RH3 grid is a development choice. Representative bins must
 - likelihood concentration changes;
 - Script-6 population summaries change.
 
-A selected solution within two cells of an edge in \(V_A\), \(V_B\), or \(f_A\) is automatically flagged.
+A selected solution within two cells of an edge in $V_A$, $V_B$, or $f_A$ is automatically flagged.
 
 ---
 
@@ -1181,7 +1181,7 @@ Approximations made solely for speed must be validated against a more complete c
 
 The following are intentionally **not frozen scientific truths**:
 
-- intrinsic disk thickness \(q_0\) prior;
+- intrinsic disk thickness $q_0$ prior;
 - exact geometry-prior widths;
 - BL multiplicative-polynomial degree;
 - final RH3 velocity-grid spacing/extent;

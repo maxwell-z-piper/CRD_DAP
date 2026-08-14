@@ -55,12 +55,12 @@ Shows the robust two-dimensional BL continuum surface-brightness distribution ob
 
 Conceptually,
 
-\[
+$$
 I_{\mathrm{BL}}(x,y)
 =
 \operatorname{median}_{\lambda\in\mathrm{good}}
 F_{\mathrm{BL}}(x,y,\lambda),
-\]
+$$
 
 or the final adopted weighted equivalent.
 
@@ -121,7 +121,7 @@ Demonstrates that BL and RH3 have been placed onto the same physical sky coordin
 ### Overlays
 
 - adopted common center;
-- measured registration shift \((\Delta x,\Delta y)\);
+- measured registration shift $(\Delta x,\Delta y)$;
 - common IFU overlap region.
 
 ### Healthy result
@@ -228,7 +228,7 @@ Documents the empirical instrumental LSF measured from the required master arc.
 
 ### Quantity
 
-Measured arc-line FWHM or Gaussian \(\sigma\) as a function of wavelength, optionally separated by slice/spatial position.
+Measured arc-line FWHM or Gaussian $\sigma$ as a function of wavelength, optionally separated by slice/spatial position.
 
 ### Recommended display
 
@@ -265,7 +265,7 @@ FWHM residual relative to the wavelength-only mean/model versus slice or spatial
 
 ### Healthy result
 
-Variation is small relative to the precision required for \(\sigma_A,\sigma_B\).
+Variation is small relative to the precision required for $\sigma_A,\sigma_B$.
 
 ### Warning sign
 
@@ -286,13 +286,13 @@ Documents the effective delivered spatial resolution separately for both arms.
 
 The difference
 
-\[
+$$
 \Delta\mathrm{FWHM}_{\mathrm{PSF}}
 =
 \mathrm{FWHM}_{\mathrm{BL}}
 -
 \mathrm{FWHM}_{\mathrm{RH3}}
-\]
+$$
 
 informs whether Script 6 needs explicit PSF-aware transfer of the RH3 velocity model to BL.
 
@@ -324,9 +324,9 @@ Tests whether formal uncertainties place normalized residuals on the expected sc
 
 ### Quantity
 
-\[
+$$
 z(\lambda)=\frac{F(\lambda)-M(\lambda)}{\sigma_F(\lambda)}.
-\]
+$$
 
 ### Display
 
@@ -341,7 +341,7 @@ Histogram and/or quantile comparison to a unit-width Gaussian after obvious mode
 
 ### Action
 
-Revisit variance scaling and covariance characterization before using \(e^{-\Delta\chi^2/2}\) as a relative-likelihood mapping.
+Revisit variance scaling and covariance characterization before using $e^{-\Delta\chi^2/2}$ as a relative-likelihood mapping.
 
 ---
 
@@ -379,9 +379,9 @@ Shows the physical BL-defined PowerBin tessellation used by every later stage.
 
 - bin boundaries;
 - adopted center;
-- signed \(PA_{\mathrm{kin}}\) axis;
+- signed $PA_{\mathrm{kin}}$ axis;
 - optional effective radius;
-- optional initial/updated \(2\sigma\) locations;
+- optional initial/updated $2\sigma$ locations;
 - IFU footprint.
 
 ### Healthy result
@@ -423,10 +423,10 @@ Both panels share exactly the same `vmin` and `vmax`.
 
 Default upper limit:
 
-\[
+$$
 v_{\max}
 =P_{95}\left(\{S/N_{\mathrm{BL}}\}\cup\{S/N_{\mathrm{RH3}}\}\right).
-\]
+$$
 
 Values above the 95th percentile saturate but remain numerically preserved in data tables.
 
@@ -465,18 +465,18 @@ Preliminary single-LOSVD stellar velocity map used to verify the global rotation
 
 ### Purpose
 
-High-resolution KCWI measurement of the single-component stellar dispersion morphology, including the two \(2\sigma\) peaks.
+High-resolution KCWI measurement of the single-component stellar dispersion morphology, including the two $2\sigma$ peaks.
 
 ### Overlays
 
 - center;
-- \(PA_{\mathrm{kin}}\);
-- measured positive/negative \(2\sigma\) locations;
-- MaNGA \(2\sigma\) locations for comparison if useful.
+- $PA_{\mathrm{kin}}$;
+- measured positive/negative $2\sigma$ locations;
+- MaNGA $2\sigma$ locations for comparison if useful.
 
 ### Scientific role
 
-The measured outer peak radius drives the primary Script-4 \(R_{\mathrm{final}}\) definition.
+The measured outer peak radius drives the primary Script-4 $R_{\mathrm{final}}$ definition.
 
 ---
 
@@ -487,12 +487,12 @@ The measured outer peak radius drives the primary Script-4 \(R_{\mathrm{final}}\
 
 ### Purpose
 
-Extracts/visualizes single-component \(\sigma_\star\) along the signed kinematic major axis so that positive and negative \(2\sigma\) peak radii can be measured reproducibly rather than by eye from the 2-D map alone.
+Extracts/visualizes single-component $\sigma_\star$ along the signed kinematic major axis so that positive and negative $2\sigma$ peak radii can be measured reproducibly rather than by eye from the 2-D map alone.
 
 ### Axes
 
 - x: signed major-axis coordinate, arcsec;
-- y: single-component \(\sigma_\star\), km/s.
+- y: single-component $\sigma_\star$, km/s.
 
 ### Overlays
 
@@ -513,10 +513,10 @@ Representative view of the 3-D profile-likelihood cube for one PowerBin.
 
 ### Recommended panels
 
-1. profiled \(\Delta\chi^2(V_A,V_B)\), minimizing over RH3 \(f_A\);
-2. best \(f_A(V_A,V_B)\);
-3. best \(\sigma_A(V_A,V_B)\);
-4. best \(\sigma_B(V_A,V_B)\).
+1. profiled $\Delta\chi^2(V_A,V_B)$, minimizing over RH3 $f_A$;
+2. best $f_A(V_A,V_B)$;
+3. best $\sigma_A(V_A,V_B)$;
+4. best $\sigma_B(V_A,V_B)$.
 
 ### Interpretation
 
@@ -535,11 +535,11 @@ Likelihood minimum on a grid edge, multiple nearly disconnected minima, or a nea
 
 Maps the raw one-vs-two-component statistic before mock calibration:
 
-\[
+$$
 T_i
 =
 \chi^2_{1\mathrm{comp},i}-\chi^2_{2\mathrm{comp},i}.
-\]
+$$
 
 It must not be labeled as a formal significance/p-value map.
 
@@ -556,8 +556,8 @@ Compares representative coarse and fine profile-likelihood grids to demonstrate 
 
 ### Suggested panels
 
-- coarse profiled \(\Delta\chi^2\);
-- fine profiled \(\Delta\chi^2\);
+- coarse profiled $\Delta\chi^2$;
+- fine profiled $\Delta\chi^2$;
 - interpolated difference / minimum locations.
 
 ### Action
@@ -580,32 +580,32 @@ Displays the exact non-parametric radial-ring geometry used by the global two-di
 ### Must show
 
 - galaxy center;
-- signed \(PA_{\mathrm{kin}}\) axis;
+- signed $PA_{\mathrm{kin}}$ axis;
 - projected ring ellipses;
-- \(R_{\mathrm{start}}\);
+- $R_{\mathrm{start}}$;
 - each ring center;
-- \(R_{2\sigma,+}\) and \(R_{2\sigma,-}\);
-- adopted \(R_{2\sigma,\mathrm{max}}\);
-- snapped \(R_{\mathrm{final}}\);
-- final annulus \(R_{\mathrm{final}}\pm\delta\);
+- $R_{2\sigma,+}$ and $R_{2\sigma,-}$;
+- adopted $R_{2\sigma,\mathrm{max}}$;
+- snapped $R_{\mathrm{final}}$;
+- final annulus $R_{\mathrm{final}}\pm\delta$;
 - PSF scale;
 - PowerBin footprint.
 
 ### Mathematical definitions
 
-\[
+$$
 R_{\mathrm{start}}=\mathrm{FWHM}_{\mathrm{PSF}},
-\]
+$$
 
-\[
+$$
 \delta=0.5\,\mathrm{ring\_space},
-\]
+$$
 
 and the snapped outer-radius relation documented in `METHODS.md`.
 
 ### Healthy result
 
-The radial nodes resolve the galaxy at approximately the delivered PSF scale and the final \(2\sigma\)-limited ring encloses the relevant two-component region without an obvious excessive gap.
+The radial nodes resolve the galaxy at approximately the delivered PSF scale and the final $2\sigma$-limited ring encloses the relevant two-component region without an obvious excessive gap.
 
 ---
 
@@ -663,7 +663,7 @@ Flag `POOR_RING_COVERAGE`; consider coarser ring spacing or report the affected 
 **Script:** 04  
 **Class:** science diagnostic
 
-Maps the bin-integrated model-predicted Disk A and B velocities at the best global \(\Theta\).
+Maps the bin-integrated model-predicted Disk A and B velocities at the best global $\Theta$.
 
 ---
 
@@ -705,7 +705,7 @@ Shows the final non-parametric Disk A and Disk B rotation curves.
 - ring-node velocities as explicit markers;
 - linear interpolation between nodes;
 - optional uncertainty bands once Script 7 is complete;
-- \(R_{\mathrm{start}}\), \(R_{2\sigma}\), and radial-limit markers.
+- $R_{\mathrm{start}}$, $R_{2\sigma}$, and radial-limit markers.
 
 ### Important
 
@@ -722,16 +722,16 @@ Do not draw an analytic smooth fit that was not used by the inference.
 
 Shows the history of
 
-\[
+$$
 Q(\Theta)=\sum_iq_i(\Theta)
-\]
+$$
 
 across optimizer evaluations/iterations.
 
 ### Recommended curves
 
-- raw \(Q\) for every evaluated state;
-- best-so-far \(Q\).
+- raw $Q$ for every evaluated state;
+- best-so-far $Q$.
 
 ### Healthy result
 
@@ -761,11 +761,11 @@ Large movement to a hard prior/boundary should be obvious.
 
 ### Quantity
 
-\[
+$$
 \sigma_{\mathrm{shear},i}^2
 =
 \frac{\sum_p I_p(V_p-\bar V_i)^2}{\sum_pI_p}.
-\]
+$$
 
 ### Purpose
 
@@ -773,7 +773,7 @@ Identifies PowerBins whose internal velocity gradient can broaden the integrated
 
 ### Warning signs
 
-Shear comparable to the precision of \(\sigma_A\) or \(\sigma_B\).
+Shear comparable to the precision of $\sigma_A$ or $\sigma_B$.
 
 ### Action
 
@@ -788,13 +788,13 @@ Flag `HIGH_BIN_SHEAR` and consider explicit forward-model treatment or rebinning
 
 ### Quantity
 
-\[
+$$
 \Delta V_i
 =
 V_{i,\mathrm{bin-integrated}}
 -
 V_{i,\mathrm{centroid}}.
-\]
+$$
 
 ### Purpose
 
@@ -813,7 +813,7 @@ Differences are much smaller than the kinematic uncertainties for nearly all bin
 **Script:** 04  
 **Class:** methods/QC
 
-Shows which PowerBins enter the \(2\sigma\)-limited model and which additional bins enter the full-aperture model.
+Shows which PowerBins enter the $2\sigma$-limited model and which additional bins enter the full-aperture model.
 
 ---
 
@@ -826,9 +826,9 @@ Shows which PowerBins enter the \(2\sigma\)-limited model and which additional b
 
 Compares
 
-\[
+$$
 V_A^{2\sigma}(R),\quad V_A^{\mathrm{full}}(R)
-\]
+$$
 
 and the same for Disk B.
 
@@ -838,8 +838,8 @@ The shared inner radial domain. The outer extension naturally exists only for th
 
 ### Interpretation
 
-- close overlap: outer low-minority-fraction data are consistent and may safely help constrain \(\Theta\);
-- large inner shifts: outer bins are influencing the decomposition enough that the \(2\sigma\)-limited solution should likely remain fiducial.
+- close overlap: outer low-minority-fraction data are consistent and may safely help constrain $\Theta$;
+- large inner shifts: outer bins are influencing the decomposition enough that the $2\sigma$-limited solution should likely remain fiducial.
 
 ---
 
@@ -848,7 +848,7 @@ The shared inner radial domain. The outer extension naturally exists only for th
 **Script:** 04  
 **Class:** robustness QC
 
-Compares \(x_0,y_0,PA,i,V_{\mathrm{sys}}\) between the two radial-extent fits, with uncertainties when available.
+Compares $x_0,y_0,PA,i,V_{\mathrm{sys}}$ between the two radial-extent fits, with uncertainties when available.
 
 ---
 
@@ -857,7 +857,7 @@ Compares \(x_0,y_0,PA,i,V_{\mathrm{sys}}\) between the two radial-extent fits, w
 **Script:** 04  
 **Class:** robustness QC
 
-PowerBin map of the difference between velocities predicted by the \(2\sigma\)-limited and full-aperture best global solutions over their common domain.
+PowerBin map of the difference between velocities predicted by the $2\sigma$-limited and full-aperture best global solutions over their common domain.
 
 ---
 
@@ -874,9 +874,9 @@ Explains which 3-D likelihood basin is associated with the global XookSuut-style
 
 ### Recommended panels
 
-1. profiled \(\Delta\chi^2(V_A,V_B)\);
+1. profiled $\Delta\chi^2(V_A,V_B)$;
 2. basin membership projected into velocity space;
-3. best \(f_A\) surface;
+3. best $f_A$ surface;
 4. markers for independent cube global minimum, global-model anchor, and selected basin minimum.
 
 ### Interpretation
@@ -896,13 +896,13 @@ Separates *basin topology* from *statistical concentration*.
 
 ### Quantity
 
-For basin cell \(c\),
+For basin cell $c$,
 
-\[
+$$
 p_c
 \propto
 \exp(-\Delta\chi_c^2/2).
-\]
+$$
 
 ### Suggested display
 
@@ -925,13 +925,13 @@ The listed mass levels are diagnostics only. They are not hard candidate-selecti
 
 ### Quantity
 
-\[
+$$
 \Delta\chi^2_{\mathrm{cube},i}
 =
 \chi_i^2(\mathrm{selected})
 -
 \min_{V_A,V_B,f_A}\chi_i^2.
-\]
+$$
 
 ### Purpose
 
@@ -952,7 +952,7 @@ Large positive values in numerous bins, especially coherent spatial regions.
 **Script:** 05  
 **Class:** QC
 
-Maps the selected solution's \(\Delta\chi^2\) relative to the minimum of its own selected basin. Distinguishes “wrong basin relative to global cube” from “far up the wall of the chosen basin.”
+Maps the selected solution's $\Delta\chi^2$ relative to the minimum of its own selected basin. Distinguishes “wrong basin relative to global cube” from “far up the wall of the chosen basin.”
 
 ---
 
@@ -963,7 +963,7 @@ Maps the selected solution's \(\Delta\chi^2\) relative to the minimum of its own
 
 ### Quantity
 
-Minimum number of grid cells between the selected discrete state and any \(V_A\), \(V_B\), or \(f_A\) boundary.
+Minimum number of grid cells between the selected discrete state and any $V_A$, $V_B$, or $f_A$ boundary.
 
 ### Flag
 
@@ -986,11 +986,11 @@ Compares coarse-grid/interpolated quantities to the exact pPXF refit at the cont
 
 ### Suggested maps
 
-- \(V_A^{\mathrm{exact}}-V_A^{\mathrm{grid}}\);
-- \(V_B^{\mathrm{exact}}-V_B^{\mathrm{grid}}\);
-- \(\sigma_A^{\mathrm{exact}}-\sigma_A^{\mathrm{grid}}\);
-- \(\sigma_B^{\mathrm{exact}}-\sigma_B^{\mathrm{grid}}\);
-- \(f_A^{\mathrm{fine}}-f_A^{\mathrm{coarse}}\).
+- $V_A^{\mathrm{exact}}-V_A^{\mathrm{grid}}$;
+- $V_B^{\mathrm{exact}}-V_B^{\mathrm{grid}}$;
+- $\sigma_A^{\mathrm{exact}}-\sigma_A^{\mathrm{grid}}$;
+- $\sigma_B^{\mathrm{exact}}-\sigma_B^{\mathrm{grid}}$;
+- $f_A^{\mathrm{fine}}-f_A^{\mathrm{coarse}}$.
 
 ### Interpretation
 
@@ -1003,7 +1003,7 @@ Small differences validate that the cube is adequate for likelihood topology whi
 **Script:** 05  
 **Class:** per-bin QC
 
-Plots \(\chi^2(f_{A,\mathrm{RH3}})\) at the exact global velocities across the fine 0.01-step local fraction scan.
+Plots $\chi^2(f_{A,\mathrm{RH3}})$ at the exact global velocities across the fine 0.01-step local fraction scan.
 
 ### Warning signs
 
@@ -1028,11 +1028,11 @@ Shows the mock-data calibration connecting the one-vs-two-component statistic an
 
 Separate panels or clearly documented variants for:
 
-- single-component false-positive distribution of \(T\);
-- two-component recovery fraction versus \(\Delta V\);
-- recovery versus \(f_A\);
+- single-component false-positive distribution of $T$;
+- two-component recovery fraction versus $\Delta V$;
+- recovery versus $f_A$;
 - recovery versus S/N;
-- interpolation region in \((S/N,\Delta V,f_A,\sigma_A,\sigma_B)\) space.
+- interpolation region in $(S/N,\Delta V,f_A,\sigma_A,\sigma_B)$ space.
 
 ### Important
 
@@ -1047,11 +1047,11 @@ Do not label the empirical recovery fraction as the posterior probability that a
 
 Maps
 
-\[
+$$
 p_{\mathrm{false},i}
 =
 P(T\ge T_i\mid\mathrm{true\ one\ component})
-\]
+$$
 
 from matched single-component simulations.
 
@@ -1115,7 +1115,7 @@ Shows fitted gas emission separately from the stellar components. Particularly i
 
 ### Important
 
-Gas-template weights are excluded from \(f_{A,\mathrm{BL}}\).
+Gas-template weights are excluded from $f_{A,\mathrm{BL}}$.
 
 ---
 
@@ -1135,7 +1135,7 @@ Residual spectrum, ideally with normalized residuals and masked regions indicate
 
 ### Purpose
 
-Shows the profile joint statistic or BL statistic versus explicit stellar \(f_{A,\mathrm{BL}}\) for the anchored and/or joint-profile solution.
+Shows the profile joint statistic or BL statistic versus explicit stellar $f_{A,\mathrm{BL}}$ for the anchored and/or joint-profile solution.
 
 ### Coarse/fine display
 
@@ -1150,7 +1150,7 @@ Plot coarse 0.1-step evaluations and fine 0.01-step refinement distinctly so the
 
 ### Purpose
 
-Shows the RH3-likelihood-propagated support for \(f_{A,\mathrm{BL}}\) after integrating/reweighting over the sampled RH3-supported kinematic family.
+Shows the RH3-likelihood-propagated support for $f_{A,\mathrm{BL}}$ after integrating/reweighting over the sampled RH3-supported kinematic family.
 
 ### Report
 
@@ -1177,7 +1177,7 @@ Visualizes how BL information modifies the RH3-supported solution family.
 
 ### Suggested view
 
-Profiled \((V_A,V_B)\) RH3 contours with markers for:
+Profiled $(V_A,V_B)$ RH3 contours with markers for:
 
 - RH3 global anchor;
 - RH3 basin minimum;
@@ -1213,7 +1213,7 @@ Shows the deterministic local descent path used to find the exact discrete joint
 On a suitable 2-D projection of the RH3 basin, mark:
 
 - starting sampled cell;
-- successive lower-\(J\) neighboring cells;
+- successive lower-$J$ neighboring cells;
 - final local joint minimum.
 
 ### Interpretation
@@ -1239,11 +1239,11 @@ Cumulative number of RH3 draws.
 
 Separate panels or figures for:
 
-- \(\log Age_A\), \(\log Age_B\);
-- \([M/H]_A\), \([M/H]_B\);
-- \(f_{A,\mathrm{BL}}\);
-- \(\Delta\log Age\);
-- \(\Delta[M/H]\).
+- $\log Age_A$, $\log Age_B$;
+- $[M/H]_A$, $[M/H]_B$;
+- $f_{A,\mathrm{BL}}$;
+- $\Delta\log Age$;
+- $\Delta[M/H]$.
 
 Show median and optionally 16th/84th percentiles.
 
@@ -1353,9 +1353,9 @@ Final RH3 stellar-dispersion maps. High-shear/LSF-sensitive bins should be clear
 
 Maps
 
-\[
+$$
 \Delta V=|V_A-V_B|.
-\]
+$$
 
 Useful both scientifically and for interpreting decomposition reliability.
 
@@ -1378,7 +1378,7 @@ Each PowerBin is assigned the inferred stellar age of that disk. The spatial res
 
 ## `final_metallicity_A_map.png` / `final_metallicity_B_map.png`
 
-Same structure for \([M/H]\).
+Same structure for $[M/H]$.
 
 ---
 
@@ -1399,11 +1399,11 @@ Comparison with `final_fA_RH3_map.png` may itself be scientifically informative 
 
 Prefer logarithmic age contrast when appropriate:
 
-\[
+$$
 \Delta\log Age
 =
 \log Age_A-\log Age_B.
-\]
+$$
 
 ### Interpretation
 
@@ -1415,11 +1415,11 @@ Positive and negative values identify which disk is older. The sign convention m
 
 **Quantity**
 
-\[
+$$
 \Delta[M/H]
 =
 [M/H]_A-[M/H]_B.
-\]
+$$
 
 This is a direct physical contrast between the two stellar disks.
 
@@ -1434,13 +1434,13 @@ This is a direct physical contrast between the two stellar disks.
 
 These are *not* disk A-minus-B contrasts. They compare inference methods:
 
-\[
+$$
 \Delta Age_{A,\mathrm{method}}
 =
 Age_{A,\mathrm{likelihood-propagated}}
 -
 Age_{A,\mathrm{anchored}}.
-\]
+$$
 
 Same for Disk B.
 
@@ -1497,7 +1497,7 @@ Demonstrates that final statistical uncertainty summaries stabilize with increas
 
 ### x-axis
 
-Cumulative \(N_{\mathrm{MC}}\).
+Cumulative $N_{\mathrm{MC}}$.
 
 ### y-series
 
@@ -1505,7 +1505,7 @@ Representative or aggregate 16th/50th/84th percentile summaries for the principa
 
 ### Convergence
 
-Use a documented batch/interval stability rule rather than selecting \(N_{\mathrm{MC}}\) solely because it is a round number.
+Use a documented batch/interval stability rule rather than selecting $N_{\mathrm{MC}}$ solely because it is a round number.
 
 ---
 
@@ -1598,11 +1598,11 @@ Before a final science run is accepted, the user should be able to answer all of
 4. Does the BL PowerBin tessellation make physical sense, and what RH3 S/N is achieved in the same bins?
 5. Do representative RH3 likelihood surfaces genuinely contain meaningful two-component structure?
 6. Is the RH3 velocity/fraction grid wide and fine enough?
-7. Are the measured RH3 \(2\sigma\) peak radii and XookSuut-style radial nodes sensible?
+7. Are the measured RH3 $2\sigma$ peak radii and XookSuut-style radial nodes sensible?
 8. Are non-parametric ring velocities constrained by adequate spatial coverage?
 9. Does the global disk model fit the selected spectral likelihood basins without strongly overriding individual spectra?
 10. Are centroid-only and bin-integrated velocities consistent, or is intra-bin shear important?
-11. Do the \(2\sigma\)-limited and full-aperture global solutions agree over their common radial range?
+11. Do the $2\sigma$-limited and full-aperture global solutions agree over their common radial range?
 12. Do exact continuous RH3 refits agree with the coarse-grid likelihood solution?
 13. Are the one-vs-two-component results reliable under matched mock calibrations?
 14. Do BL spectral residuals, gas fits, and template weights look physically reasonable?
