@@ -185,7 +185,7 @@ A convention mismatch can mimic a velocity zero-point error and would contaminat
 For each arm, construct a robust 2-D continuum image by collapsing clean continuum wavelengths:
 
 $$
-I(x,y)=\operatorname{median}_{\lambda\in\mathrm{good}}F(x,y,\lambda)
+I(x,y)=\rm{median}_{\lambda\in\mathrm{good}}F(x,y,\lambda)
 $$
 
 or an appropriately weighted equivalent.
@@ -248,9 +248,7 @@ $$
 The measured LSF is compared against the XSL template LSF. The required Gaussian template broadening is conceptually
 
 $$
-\sigma_{\mathrm{conv}}^2
-=
-\sigma_{\mathrm{data}}^2-\sigma_{\mathrm{template}}^2.
+\sigma_{\mathrm{conv}}^2 = \sigma_{\mathrm{data}}^2-\sigma_{\mathrm{template}}^2.
 $$
 
 If the right-hand side is negative, the templates are broader than the data at that wavelength and the pipeline must report this explicitly rather than taking an absolute value or silently forcing a convolution.
@@ -411,12 +409,9 @@ $$
 The one-vs-two-component statistic can be defined as
 
 $$
-T_i
-=
-\chi^2_{1\mathrm{comp},i}
--
-\chi^2_{2\mathrm{comp},i}.
+T_i = \chi^2_{1\mathrm{comp}, i} - \chi^2_(2\mathrm{comp},i}.
 $$
+
 
 A textbook $\chi^2$ p-value is **not** assumed because mixture-model regularity conditions may fail. Significance/reliability is calibrated from mocks in Script 5/model-selection utilities.
 
@@ -479,24 +474,13 @@ Measure the positive- and negative-side $2\sigma$ peak radii from the preliminar
 Adopt
 
 $$
-R_{2\sigma,\mathrm{adopted}}
-=
-\max(R_{2\sigma,+},R_{2\sigma,-}).
+R_{2\sigma, \mathrm{adopted}} = \max(R_{2\sigma,+}, R_{2\sigma,-}).
 $$
 
 Snap it to the nearest allowed ring center:
 
 $$
-R_{\mathrm{final}}
-=
-R_{\mathrm{start}}
-+
-\mathrm{round}
-\left[
-\frac{R_{2\sigma,\mathrm{adopted}}-R_{\mathrm{start}}}
-{\mathrm{ring\_space}}
-\right]
-\mathrm{ring\_space}.
+R_{\mathrm{final}} = R_{\mathrm{start}} + \mathrm{round} \left[ \frac{R_{2\sigma,\mathrm{adopted}}-R_{\mathrm{start}}} {\mathrm{ring\_space}} \right] \mathrm{ring\_space}.
 $$
 
 ### B. Full-aperture model
@@ -550,9 +534,7 @@ $$
 and its uncertainty to derive an inclination distribution through
 
 $$
-\cos^2 i
-=
-\frac{q^2-q_0^2}{1-q_0^2},
+\cos^2 i=\frac{q^2-q_0^2}{1-q_0^2},
 $$
 
 where $q_0$ is an assumed intrinsic disk thickness with its own uncertainty.
@@ -575,11 +557,7 @@ The global parameters have sensible bounds/priors:
 For a sky position, transform to disk-plane radius $R$ and azimuth $\theta$, linearly interpolate the non-parametric rotation curve, and project
 
 $$
-V_{\mathrm{LOS}}
-=
-V_{\mathrm{sys}}
-+
-V_{\mathrm{rot}}(R)\sin i\cos\theta.
+V_{\mathrm{LOS}}=V_{\mathrm{sys}}+V_{\mathrm{rot}}(R)\sin i\cos\theta.
 $$
 
 Disk A and B use their own $V_{\mathrm{rot}}(R)$ curves with opposite rotation senses.
@@ -591,17 +569,13 @@ Do not blindly evaluate only at the PowerBin centroid.
 For member spaxels $p$ in bin $i$, compute a flux-weighted mean model velocity
 
 $$
-\bar V_i
-=
-\frac{\sum_p I_pV_p}{\sum_p I_p},
+\bar V_i=\frac{\sum_p I_pV_p}{\sum_p I_p},
 $$
 
 and model-predicted unresolved shear
 
 $$
-\sigma_{\mathrm{shear},i}^2
-=
-\frac{\sum_p I_p(V_p-\bar V_i)^2}{\sum_p I_p}.
+\sigma_{\mathrm{shear},i}^2=\frac{\sum_p I_p(V_p-\bar V_i)^2}{\sum_p I_p}.
 $$
 
 PSF effects should be included in the spatial weighting when required. The centroid-only approximation may still be used if diagnostics demonstrate that its difference from the bin-integrated prediction is negligible.
@@ -617,15 +591,7 @@ $$
 Evaluate/interpolate the RH3 profile-likelihood cube at those velocities and profile over the local RH3 fraction:
 
 $$
-q_i(\Theta)
-=
-\min_{f_{A,i}}
-\Delta\chi_i^2
-\left[
-V_{A,i}(\Theta),
-V_{B,i}(\Theta),
-f_{A,i}
-\right].
+q_i(\Theta)=\min_{f_{A,i}}\Delta\chi_i^2\left[V_{A,i}(\Theta),V_{B,i}(\Theta),f_{A,i}\right].
 $$
 
 Then
@@ -703,25 +669,19 @@ A basin is a topological object. It may contain the whole cube if only one local
 For selected-basin cell $c$, define
 
 $$
-\Delta\chi_c^2
-=
-\chi_c^2-\chi_{\mathrm{basin,min}}^2
+\Delta\chi_c^2=\chi_c^2-\chi_{\mathrm{basin,min}}^2
 $$
 
 and
 
 $$
-w_c
-=
-\exp\left(-\frac{\Delta\chi_c^2}{2}\right).
+w_c=\exp\left(-\frac{\Delta\chi_c^2}{2}\right).
 $$
 
 Normalize within the selected basin:
 
 $$
-p_c
-=
-\frac{w_c}{\sum_{j\in\mathcal B}w_j}.
+p_c=\frac{w_c}{\sum_{j\in\mathcal B}w_j}.
 $$
 
 These are **normalized relative-likelihood weights conditional on the selected basin**, not formal Bayesian posterior cell probabilities.
@@ -739,11 +699,7 @@ This distinction is central to Script 6.
 For the final selected/refined two-component solution, compute the one-vs-two-component statistic
 
 $$
-T
-=
-\chi^2_{1\mathrm{comp}}
--
-\chi^2_{2\mathrm{comp}}.
+T=\chi^2_{1\mathrm{comp}}-\chi^2_{2\mathrm{comp}}.
 $$
 
 Use mocks to derive two distinct quantities:
@@ -753,9 +709,7 @@ Use mocks to derive two distinct quantities:
 From true one-component mock spectra,
 
 $$
-p_{\mathrm{false}}
-=
-P(T\ge T_{\mathrm{obs}}\mid\mathrm{true\ one\ component}).
+p_{\mathrm{false}}=P(T\ge T_{\mathrm{obs}}\mid\mathrm{true\ one\ component}).
 $$
 
 ### Two-component recovery probability
@@ -769,9 +723,7 @@ $$
 estimate
 
 $$
-p_{\mathrm{recover}}
-=
-P(\mathrm{successful\ recovery}\mid\mathrm{true\ two\ component,\ conditions}).
+p_{\mathrm{recover}}=P(\mathrm{successful\ recovery}\mid\mathrm{true\ two\ component,\ conditions}).
 $$
 
 Do not interpret either quantity as a Bayesian probability that the observed galaxy “is two-component.”
@@ -785,10 +737,7 @@ Do not interpret either quantity as a Bayesian probability that the observed gal
 Define the BL fraction over the globally adopted usable BL fitting band after consistent template normalization:
 
 $$
-f_{A,\mathrm{BL}}
-=
-\frac{\sum_jw_{A,j}}
-{\sum_jw_{A,j}+\sum_jw_{B,j}}.
+f_{A,\mathrm{BL}}=\frac{\sum_jw_{A,j}}{\sum_jw_{A,j}+\sum_jw_{B,j}}.
 $$
 
 The fraction is purely stellar. Gas-template weights are excluded.
@@ -806,9 +755,7 @@ is physically allowed and potentially informative.
 Fit gas emission simultaneously in BL where relevant:
 
 $$
-F_{\mathrm{model}}
-=
-F_{\star,A}+F_{\star,B}+F_{\mathrm{gas}}.
+F_{\mathrm{model}}=F_{\star,A}+F_{\star,B}+F_{\mathrm{gas}}.
 $$
 
 Gas has its own kinematics and does not contribute to the stellar disk light fraction.
@@ -852,11 +799,7 @@ This answers: **How do the BL population inferences change across the family of 
 Search for the lowest joint statistic
 
 $$
-J(c,f_{A,\mathrm{BL}})
-=
-\Delta\chi^2_{\mathrm{RH3},c}
-+
-\Delta\chi^2_{\mathrm{BL}}(c,f_{A,\mathrm{BL}})
+J(c,f_{A,\mathrm{BL}})=\Delta\chi^2_{\mathrm{RH3},c}+\Delta\chi^2_{\mathrm{BL}}(c,f_{A,\mathrm{BL}})
 $$
 
 within the selected physical basin, with deterministic local refinement around the best sampled state.
@@ -967,17 +910,13 @@ Flag population solutions that accumulate against SSP-library boundaries in age 
 For every weighted solution, calculate directly
 
 $$
-\Delta\log Age
-=
-\log Age_A-\log Age_B
+\Delta\log Age=\log Age_A-\log Age_B
 $$
 
 and
 
 $$
-\Delta[M/H]
-=
-[M/H]_A-[M/H]_B.
+\Delta[M/H]=[M/H]_A-[M/H]_B.
 $$
 
 This preserves correlations between the two disk population measurements better than subtracting two separately summarized medians after the fact.
