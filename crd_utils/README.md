@@ -25,4 +25,4 @@ Current module responsibilities:
 - `runtime.py` — timings, wall-time forecasting, later multicore benchmark support.
 - `plotting.py` — all diagnostic/publication plot implementations; every nontrivial plot must be documented in `../DIAGNOSTICS.md`.
 
-Several modules currently contain deliberately explicit `NotImplementedError` placeholders. This is intentional: the interfaces and scientific responsibilities are defined now, while implementation that depends on the exact real KCWI DRP file structure will be added alongside the corresponding science script.
+Script-1 functionality is now implemented in `io.py`, `cube_utils.py`, `noise.py`, `psf_lsf.py`, `validation.py`, and `plotting.py`. Modules supporting later science stages may still contain explicit `NotImplementedError` placeholders; those are intentionally filled only when the corresponding driver script is implemented and tested.

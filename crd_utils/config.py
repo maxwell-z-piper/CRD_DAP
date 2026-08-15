@@ -137,6 +137,19 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
     if getattr(cfg, "N_DIRECT", 200) < 1:
         raise ValueError("N_DIRECT must be >= 1.")
 
+    min_good = float(getattr(cfg, "MIN_GOOD_WAVELENGTH_FRACTION", 0.80))
+    if not 0.0 <= min_good <= 1.0:
+        raise ValueError("MIN_GOOD_WAVELENGTH_FRACTION must lie between 0 and 1.")
+    bad_channel = float(getattr(cfg, "BAD_CHANNEL_FRACTION_THRESHOLD", 0.50))
+    if not 0.0 <= bad_channel <= 1.0:
+        raise ValueError("BAD_CHANNEL_FRACTION_THRESHOLD must lie between 0 and 1.")
+    if int(getattr(cfg, "LSF_MODEL_WAVELENGTH_ORDER", 2)) < 0:
+        raise ValueError("LSF_MODEL_WAVELENGTH_ORDER cannot be negative.")
+    if int(getattr(cfg, "ARC_MIN_GOOD_LINES", 6)) < 3:
+        raise ValueError("ARC_MIN_GOOD_LINES must be >= 3.")
+    if float(getattr(cfg, "REGISTRATION_WARNING_ARCSEC", 0.25)) <= 0:
+        raise ValueError("REGISTRATION_WARNING_ARCSEC must be positive.")
+
 
 def snapshot_config(cfg: PipelineConfig, destination_dir: str | Path) -> Path:
     """Copy the exact configuration file into a run directory."""
