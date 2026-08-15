@@ -1,10 +1,10 @@
 # Science-driver scripts
 
-This directory will contain the seven executable pipeline stages described in `../METHODS.md`.
+This directory contains the executable pipeline stages described in `../METHODS.md`. Script 1 is implemented; later stages are added sequentially as their helper functions are completed and tested.
 
 The drivers should intentionally stay compact. They should orchestrate work by calling thoroughly documented functions in `crd_utils` rather than containing large blocks of analysis logic themselves.
 
-Planned scripts:
+Science-driver sequence:
 
 ```text
 01_prepare_and_register_cubes.py
