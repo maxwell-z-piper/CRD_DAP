@@ -102,10 +102,6 @@ The logging utilities are designed to write to both the terminal and log files. 
 
 Both files should evolve together with the code. A new science diagnostic should not be considered complete until it is documented in `DIAGNOSTICS.md`.
 
-### Markdown mathematics
-
-Repository documentation follows GitHub's native MathJax Markdown convention. Use `$...$` for inline mathematics and standalone `$$...$$` blocks for displayed equations. Do not use `\(...\)` or `\[...\]` delimiters in repository Markdown files. This keeps mathematical notation rendered consistently in GitHub's **Preview** view.
-
 ## Development philosophy
 
 The project deliberately favors scientific completeness, traceability, and explicit diagnostics over minimizing runtime or disk usage. Expensive calculations may be cached and parallelized, but approximations should be introduced only when their effect has been tested.
