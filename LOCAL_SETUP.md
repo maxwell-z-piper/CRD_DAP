@@ -1,4 +1,4 @@
-# Local installation on Max's Mac
+# Local installation
 After downloading/extracting the bundle, place the folder at:
 
 ```text
