@@ -54,7 +54,7 @@ $$
 \rightarrow
 \chi_i^2(V_A,V_B,f_A)
 \rightarrow
-\mathrm{global\ two\!\!\!-disk\ model}
+\mathrm{global\ two-disk\ model}
 \rightarrow
 \mathrm{exact\ RH3\ solution}
 \rightarrow
