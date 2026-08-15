@@ -215,7 +215,7 @@ These estimates are compared. The final global kinematic center remains a free p
 
 BL and RH3 must be placed in a common sky-coordinate system. Identical array indices should not be assumed to represent identical physical positions unless WCS verification proves that they do.
 
-The output must allow Script 2 to apply one physical BL-defined PowerBin membership to the RH3 cube.
+The output must allow Script 2 to apply one physical BL-defined PowerBin membership to the RH3 cube. The baseline Script-1 implementation does not resample either science cube onto the other arm because that would introduce an additional interpolation/covariance operation. Instead, it verifies the WCS alignment using a diagnostic RH3-to-BL image reprojection and saves common tangent-plane spatial-coordinate grids for both native cubes.
 
 ## 4.9 PSF characterization
 
@@ -231,7 +231,7 @@ The RH3 PSF will also define the default XookSuut-style radial node spacing.
 
 ## 4.10 Empirical LSF from master arcs
 
-The primary LSF comes from unresolved lines in the required master-arc products.
+The primary LSF comes from unresolved lines in the required master-arc products. Script 1 also uses the KCWI DRP wavelength, slice, and position maps associated with the master-arc root (`*_wavemap.fits`, `*_slicemap.fits`, and `*_posmap.fits`) so detector arc pixels can be measured in wavelength and spatial/slice coordinates.
 
 Aim to estimate
 
@@ -268,6 +268,8 @@ Script 1 must therefore characterize:
 - residual normalized-width / variance rescaling;
 - spectral covariance introduced by interpolation/resampling/stacking;
 - whether a full pPXF covariance matrix or a validated approximation is appropriate.
+
+The first Script-1 covariance estimate is intentionally diagnostic rather than final because no stellar model exists yet. It uses high-pass residuals from low-continuum spatial samples to identify obvious variance-scale or wavelength-correlation problems. The covariance treatment must be revisited using the first pPXF residuals before profile-likelihood widths are trusted quantitatively.
 
 This is a required precondition for trusting profile-likelihood widths.
 
@@ -409,7 +411,7 @@ $$
 The one-vs-two-component statistic can be defined as
 
 $$
-T_i = \chi^2_{1\mathrm{comp}, i} - \chi^2_(2\mathrm{comp},i}.
+T_i = \chi^2_{1\mathrm{comp}, i} - \chi^2_{2\mathrm{comp},i}.
 $$
 
 

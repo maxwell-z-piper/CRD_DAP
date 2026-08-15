@@ -41,10 +41,12 @@ Unless a plot explicitly states otherwise:
 
 # Script 1 — cube preparation, calibration, registration, PSF/LSF, and noise
 
+The initial implementations of the Script-1 figures live in `crd_utils.plotting`. Script 1 saves the science cubes without an additional spatial resampling step; `BL_RH3_registration.png` uses a WCS-based diagnostic reprojection only, while physical sky-coordinate grids are saved separately for the later transfer of BL-defined PowerBins to RH3.
+
 ## `BL_collapsed_continuum.png`
 
 **Script:** 01  
-**Helper:** planned `plot_collapsed_continuum()`  
+**Helper:** `crd_utils.plotting.plot_collapsed_continuum()`  
 **Class:** QC + potential methods figure panel
 
 ### Purpose
@@ -141,6 +143,7 @@ Do not proceed to Script 2 until registration is resolved.
 ## `geometry_center_comparison.png`
 
 **Script:** 01 / updated in 04  
+**Helper:** `crd_utils.plotting.plot_center_comparison()`  
 **Class:** QC
 
 ### Purpose
@@ -247,7 +250,7 @@ Do not trust derived stellar dispersions until the cause is understood. If the t
 
 ---
 
-## `LSF_spatial_variation.png`
+## `BL_LSF_spatial_variation.png` / `RH3_LSF_spatial_variation.png`
 
 **Script:** 01  
 **Class:** QC

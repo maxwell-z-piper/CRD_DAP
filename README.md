@@ -2,7 +2,7 @@
 
 **CRD_DAP** is a research pipeline for decomposing counter-rotating stellar disks (CRDs) observed with Keck/KCWI/KCRM. The project is being developed around paired BL and RH3 observations and is designed to preserve as much of the spectral likelihood information as possible from the high-resolution RH3 kinematic fits before propagating those constraints into two-component stellar-population fits in BL.
 
-The current repository contains the **pre-Script-1 infrastructure**: configuration, logging, validation, diagnostic-documentation architecture, and the `crd_utils` helper package. The seven science-driver scripts described in `METHODS.md` will be implemented next.
+The repository contains the configuration, logging, validation, diagnostic-documentation architecture, the `crd_utils` helper package, and the implemented first science-driver stage, `scripts/01_prepare_and_register_cubes.py`. Later science-driver scripts described in `METHODS.md` will be implemented sequentially.
 
 ## Scientific design in one sentence
 
@@ -43,11 +43,13 @@ CRD_DAP/
 │   ├── runtime.py
 │   └── plotting.py
 ├── scripts/
-│   └── README.md
+│   ├── README.md
+│   └── 01_prepare_and_register_cubes.py
 ├── tests/
 ├── examples/
 ├── data/
-│   └── README.md
+│   ├── README.md
+│   └── 01_prepare_and_register_cubes.py
 └── runs/
 ```
 
