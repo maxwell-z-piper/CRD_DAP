@@ -93,10 +93,39 @@ def _save_spatial_coordinates(
     return x_arcsec, y_arcsec
 
 
-def _run_lsf(arm: str, cfg, run, logger) -> tuple[psf_lsf.ArcLSFResult, dict[str, Path]]:
+def _run_lsf(
+    arm: str,
+    cube: io.KCWICube,
+    cfg,
+    run,
+    logger,
+) -> tuple[psf_lsf.ArcLSFResult, dict[str, Path], validation.CalibrationMatch]:
     prefix = arm.upper()
     master_arc = Path(getattr(cfg, f"{prefix}_MASTER_ARC")).expanduser().resolve()
     logger.info("Measuring %s LSF from master arc: %s", arm, master_arc)
+
+    # Before measuring any widths, verify that the calibration actually belongs
+    # to the same instrumental setup as the science cube. A RED/RL arc is not a
+    # valid RH3 calibration simply because both use the red detector.
+    arc_header = psf_lsf.read_primary_header(master_arc)
+    calibration_match = validation.validate_arc_science_configuration(
+        cube.header,
+        arc_header,
+        arm=arm,
+        central_wavelength_tolerance_angstrom=float(
+            getattr(cfg, "ARC_SCIENCE_CWAVE_TOLERANCE_ANGSTROM", 0.5)
+        ),
+    )
+    logger.info(
+        "%s science/master-arc configuration verified: camera=%s, grating=%s, "
+        "IFU=%s, binning=%s, central wavelength=%s A",
+        arm,
+        calibration_match.arc_camera,
+        calibration_match.arc_grating,
+        calibration_match.arc_ifu,
+        calibration_match.arc_binning,
+        calibration_match.arc_cwave_angstrom,
+    )
 
     result, sidecars = psf_lsf.measure_arc_lsf_from_files(
         master_arc,
@@ -130,19 +159,27 @@ def _run_lsf(arm: str, cfg, run, logger) -> tuple[psf_lsf.ArcLSFResult, dict[str
     )
 
     logger.info(
-        "%s LSF: %d accepted lines (%d initially fit); wavelength %.1f--%.1f A; "
-        "median FWHM %.4f A; spatial fractional RMS %.4f",
+        "%s LSF: %d accepted line measurements (%d initially fit); "
+        "wavelength %.1f--%.1f A; median FWHM %.4f A",
         arm,
         result.n_lines_used,
         result.n_lines_total,
         result.wavelength_min,
         result.wavelength_max,
         float(np.nanmedian(result.fwhm_angstrom)),
+    )
+    logger.info(
+        "%s LSF fractional scatter: raw line-to-line RMS=%.4f; "
+        "slice RMS=%.4f; position-bin RMS=%.4f; slice+position group RMS=%.4f",
+        arm,
+        result.measurement_fractional_rms,
+        result.slice_fractional_rms,
+        result.position_fractional_rms,
         result.spatial_fractional_rms,
     )
     for name, path in sidecars.items():
         logger.info("%s master-arc sidecar %s: %s", arm, name, path)
-    return result, sidecars
+    return result, sidecars, calibration_match
 
 
 def _run_noise_diagnostic(arm: str, cube: io.KCWICube, image: np.ndarray, cfg, run, logger):
@@ -232,6 +269,7 @@ def main() -> int:
                 int(cube.good_wavelength.size),
             )
             logger.info("%s FITS extensions: %s", cube.arm, io.inspect_fits_extensions(cube.path))
+            logger.info("%s exact DRP FLAGS value counts: %s", cube.arm, io.summarize_integer_flags(cube.flags))
 
         # Wavelength medium/frame bookkeeping is explicit. The XSL template
         # library may currently be in a different medium; that is recorded as a
@@ -244,11 +282,13 @@ def main() -> int:
                 science_velocity_frame=cfg.SCIENCE_VELOCITY_FRAME,
             )
             logger.info(
-                "%s conventions: science=%s wavelengths, velocity frame=%s, "
-                "template=%s wavelengths, template conversion required=%s",
+                "%s conventions: science=%s wavelengths (header=%s), velocity frame=%s "
+                "(header=%s), template=%s wavelengths, template conversion required=%s",
                 cube.arm,
                 conventions.science_medium,
+                conventions.header_wavelength_medium,
                 conventions.science_velocity_frame,
+                conventions.header_velocity_frame,
                 conventions.template_medium,
                 conventions.template_conversion_required,
             )
@@ -467,8 +507,8 @@ def main() -> int:
         # 6. Empirical master-arc LSFs.
         # ------------------------------------------------------------------
         crd.log_section(logger, "6. Empirical master-arc LSF")
-        bl_lsf, bl_sidecars = _run_lsf("BL", cfg, run, logger)
-        rh3_lsf, rh3_sidecars = _run_lsf("RH3", cfg, run, logger)
+        bl_lsf, bl_sidecars, bl_cal_match = _run_lsf("BL", bl, cfg, run, logger)
+        rh3_lsf, rh3_sidecars, rh3_cal_match = _run_lsf("RH3", rh3, cfg, run, logger)
         for arm, result in (("BL", bl_lsf), ("RH3", rh3_lsf)):
             if result.spatial_fractional_rms > float(cfg.LSF_SPATIAL_VARIATION_WARNING_FRACTION):
                 _quality_flag(
@@ -486,14 +526,22 @@ def main() -> int:
                     "sidecars": {k: str(v) for k, v in bl_sidecars.items()},
                     "n_lines_used": bl_lsf.n_lines_used,
                     "median_fwhm_A": float(np.nanmedian(bl_lsf.fwhm_angstrom)),
+                    "measurement_fractional_rms": bl_lsf.measurement_fractional_rms,
+                    "slice_fractional_rms": bl_lsf.slice_fractional_rms,
+                    "position_fractional_rms": bl_lsf.position_fractional_rms,
                     "spatial_fractional_rms": bl_lsf.spatial_fractional_rms,
+                    "calibration_match": bl_cal_match.__dict__,
                 },
                 "RH3": {
                     "master_arc": str(Path(cfg.RH3_MASTER_ARC).expanduser().resolve()),
                     "sidecars": {k: str(v) for k, v in rh3_sidecars.items()},
                     "n_lines_used": rh3_lsf.n_lines_used,
                     "median_fwhm_A": float(np.nanmedian(rh3_lsf.fwhm_angstrom)),
+                    "measurement_fractional_rms": rh3_lsf.measurement_fractional_rms,
+                    "slice_fractional_rms": rh3_lsf.slice_fractional_rms,
+                    "position_fractional_rms": rh3_lsf.position_fractional_rms,
                     "spatial_fractional_rms": rh3_lsf.spatial_fractional_rms,
+                    "calibration_match": rh3_cal_match.__dict__,
                 },
             },
             run.metadata_dir / "lsf_summary.json",
