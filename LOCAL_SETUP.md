@@ -1,6 +1,5 @@
 # Local installation on Max's Mac
-
-This repository bundle was generated in ChatGPT's sandbox and cannot be written directly into the host Mac filesystem. After downloading/extracting the bundle, place the folder at:
+After downloading/extracting the bundle, place the folder at:
 
 ```text
 /Users/maxpiper/CRD_DAP
