@@ -2,13 +2,13 @@
 After downloading/extracting the bundle, place the folder at:
 
 ```text
-/Users/maxpiper/CRD_DAP
+/Path/to/CRD_DAP
 ```
 
 Then, from Terminal:
 
 ```bash
-cd /Users/maxpiper/CRD_DAP
+cd /Path/to/CRD_DAP
 
 python3 -m venv .venv
 source .venv/bin/activate
