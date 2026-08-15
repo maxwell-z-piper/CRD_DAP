@@ -1019,10 +1019,10 @@ $$
 Also map disk contrasts
 
 $$
-\Delta\log Age(x,y),
-\qquad
-\Delta[M/H](x,y),
+\Delta\log Age(x,y),\qquad\Delta[M/H] (x,y)
 $$
+
+
 
 and method-robustness differences between anchored and likelihood-propagated solutions.
 
