@@ -61,8 +61,10 @@ RUNS_ROOT = PROJECT_ROOT / "runs"
 # 4. WAVELENGTH AND VELOCITY CONVENTIONS
 # =============================================================================
 # Script 1 must verify these against FITS metadata and template metadata. A
-# mismatch between science and template wavelength conventions is a hard error,
-# not a warning, because it can mimic a velocity zero-point offset.
+# science/template medium difference is allowed only when it is explicit and
+# recorded for conversion during template preparation; two arrays may never be
+# passed to pPXF in inconsistent wavelength media because that can mimic a
+# velocity zero-point offset.
 
 SCIENCE_WAVELENGTH_MEDIUM = "vacuum"  # "air" or "vacuum"
 TEMPLATE_WAVELENGTH_MEDIUM = "air"    # set to actual XSL convention used
@@ -120,18 +122,69 @@ LSF_MODE = "master_arc"  # baseline production mode
 LSF_MODEL_WAVELENGTH_ORDER = 2
 LSF_MEASURE_SPATIAL_VARIATION = True
 
+# KCWI DRP normally writes *_wavemap.fits, *_slicemap.fits, and *_posmap.fits
+# products derived from the same master-arc root. Leave these as None to let
+# Script 1 discover those files automatically beside BL_MASTER_ARC/RH3_MASTER_ARC.
+# Set explicit paths only for non-standard reductions or renamed files.
+BL_ARC_WAVEMAP = None
+BL_ARC_SLICEMAP = None
+BL_ARC_POSMAP = None
+RH3_ARC_WAVEMAP = None
+RH3_ARC_SLICEMAP = None
+RH3_ARC_POSMAP = None
+
+# Master-arc line detection/fitting defaults. These are deliberately exposed
+# because unusual lamp spectra or configurations may require tuning after the
+# Script-1 LSF diagnostics are inspected.
+LSF_SPATIAL_BINS = 3
+ARC_PEAK_PROMINENCE_FRACTION = 0.05
+ARC_PEAK_HEIGHT_PERCENTILE = 70.0
+ARC_MIN_PEAK_DISTANCE_PIX = 4
+ARC_LINE_FIT_HALF_WIDTH_PIX = 5
+ARC_MIN_GOOD_LINES = 6
+ARC_LSF_SIGMA_CLIP = 3.0
+LSF_SPATIAL_VARIATION_WARNING_FRACTION = 0.10
+
+# An extended galaxy cube cannot provide an unbiased PSF estimate by itself.
+# Explicit values above take precedence. If they are None, Script 1 may use a
+# recognized seeing/FWHM value from the science-cube header. The header-key
+# search is recorded in the output provenance.
+PSF_HEADER_KEYS = ("SEEING", "FWHM", "GUIDFWHM")
+
 # =============================================================================
 # 8. SCRIPT 1: DATA-QUALITY / NOISE SETTINGS
 # =============================================================================
 
 MIN_GOOD_WAVELENGTH_FRACTION = 0.80
 BAD_CHANNEL_FRACTION_THRESHOLD = 0.50
+REJECT_ANY_NONZERO_DRP_FLAG = True
+
+# Continuum-center and registration diagnostics. The BL continuum peak is the
+# default common coordinate origin because BL defines the master PowerBins;
+# Script 4 later refits the kinematic center within explicit bounds.
+CENTER_SMOOTH_SIGMA_PIX = 1.0
+CENTER_CENTROID_MIN_PERCENTILE = 60.0
+COMMON_CENTER_SOURCE = "BL_peak"  # currently supported: "BL_peak", "RH3_peak"
+CENTER_WARNING_ARCSEC = 0.5
+REGISTRATION_WARNING_ARCSEC = 0.25
 
 # Noise/covariance characterization. Exact implementation is developed in
 # crd_utils.noise; these switches record the intended production behavior.
 ESTIMATE_VARIANCE_RESCALING = True
 ESTIMATE_SPECTRAL_COVARIANCE = True
 USE_COVARIANCE_IN_PPXF_WHEN_SUPPORTED = True
+
+# Script 1's covariance estimate is intentionally preliminary because no pPXF
+# residual model exists yet. It uses high-pass residuals from low-continuum
+# spaxels as a QC screen and is revisited after the first stellar fits.
+NOISE_DIAGNOSTIC_MAX_SPAXELS = 200
+NOISE_LOW_FLUX_PERCENTILE = 30.0
+NOISE_SAVGOL_WINDOW = 31
+NOISE_SAVGOL_POLYORDER = 2
+NOISE_MAX_SPECTRAL_LAG = 15
+NOISE_VARIANCE_SCALE_WARNING_FRACTION = 0.20
+NOISE_CORRELATION_WARNING_ABS = 0.10
+APPLY_PRELIMINARY_VARIANCE_RESCALING = False
 
 # =============================================================================
 # 9. SCRIPT 2: MASTER BL POWERBINS
