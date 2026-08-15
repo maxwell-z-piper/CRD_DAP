@@ -66,13 +66,16 @@ RUNS_ROOT = PROJECT_ROOT / "runs"
 # passed to pPXF in inconsistent wavelength media because that can mimic a
 # velocity zero-point offset.
 
-SCIENCE_WAVELENGTH_MEDIUM = "vacuum"  # "air" or "vacuum"
+# "auto" is the recommended production setting: Script 1 infers the science
+# convention from the reduced cube metadata and hard-fails if it cannot do so.
+# An explicit "air"/"vacuum" value is also allowed and is checked against the
+# header rather than blindly trusted.
+SCIENCE_WAVELENGTH_MEDIUM = "auto"
 TEMPLATE_WAVELENGTH_MEDIUM = "air"    # set to actual XSL convention used
 
-# Record whether the reduced cube wavelength solution has already received a
-# heliocentric/barycentric correction. Exact allowed values will be validated
-# by crd_utils.validation once Script 1 is implemented.
-SCIENCE_VELOCITY_FRAME = "UNKNOWN"
+# Likewise, "auto" reads the applied radial-velocity correction from KCWI DRP
+# metadata (notably VCORRTYP). Explicit values are allowed and cross-checked.
+SCIENCE_VELOCITY_FRAME = "auto"
 
 # =============================================================================
 # 5. INITIAL GEOMETRY
@@ -122,10 +125,13 @@ LSF_MODE = "master_arc"  # baseline production mode
 LSF_MODEL_WAVELENGTH_ORDER = 2
 LSF_MEASURE_SPATIAL_VARIATION = True
 
-# KCWI DRP normally writes *_wavemap.fits, *_slicemap.fits, and *_posmap.fits
-# products derived from the same master-arc root. Leave these as None to let
-# Script 1 discover those files automatically beside BL_MASTER_ARC/RH3_MASTER_ARC.
-# Set explicit paths only for non-standard reductions or renamed files.
+# KCWI DRP writes *_wavemap.fits, *_slicemap.fits, and *_posmap.fits geometry
+# products associated with the master-arc wavelength solution. Leave these as
+# None to let Script 1 discover them automatically. Discovery first tries the
+# conventional filename root and then falls back to FITS-header provenance
+# (OFNAME + instrumental setup), because real RED reductions can give the maps a
+# different exposure number from the *_marc.fits filename. Explicit paths always
+# remain available when a reduction contains multiple ambiguous candidates.
 BL_ARC_WAVEMAP = None
 BL_ARC_SLICEMAP = None
 BL_ARC_POSMAP = None
@@ -144,6 +150,11 @@ ARC_LINE_FIT_HALF_WIDTH_PIX = 5
 ARC_MIN_GOOD_LINES = 6
 ARC_LSF_SIGMA_CLIP = 3.0
 LSF_SPATIAL_VARIATION_WARNING_FRACTION = 0.10
+
+# Master arc and science cube must share camera, grating, slicer, binning, and
+# central wavelength. This tolerance applies only to the central-wavelength
+# header comparison; it is not an LSF tolerance.
+ARC_SCIENCE_CWAVE_TOLERANCE_ANGSTROM = 0.5
 
 # An extended galaxy cube cannot provide an unbiased PSF estimate by itself.
 # Explicit values above take precedence. If they are None, Script 1 may use a
