@@ -56,6 +56,9 @@ class ArcLSFResult:
     wavelength_max: float
     spectral_sampling_angstrom: float
     spatial_fractional_rms: float
+    measurement_fractional_rms: float
+    slice_fractional_rms: float
+    position_fractional_rms: float
     n_lines_total: int
     n_lines_used: int
 
@@ -109,6 +112,32 @@ def required_template_convolution_sigma(
 # -----------------------------------------------------------------------------
 
 
+def read_primary_header(path: str | Path) -> fits.Header:
+    """Read and copy the primary FITS header from a calibration/science file."""
+    return fits.getheader(Path(path).expanduser().resolve(), 0).copy()
+
+
+def _validate_geometry_map_header(
+    map_header: fits.Header,
+    arc_header: fits.Header,
+    *,
+    map_name: str,
+) -> None:
+    """Check that an explicitly supplied/discovered geometry map matches the arc.
+
+    Filename roots alone are not reliable on every KCWI red-side reduction.  We
+    therefore use ``OFNAME`` and instrumental setup metadata whenever present.
+    """
+    for key in ("OFNAME", "CAMERA", "IFUNAM", "BINNING", "BGRATNAM", "RGRATNAM"):
+        a = str(arc_header.get(key, "")).strip().upper()
+        b = str(map_header.get(key, "")).strip().upper()
+        if a and b and a != b:
+            raise ValueError(
+                f"Master arc and {map_name} disagree in FITS {key}: {a!r} versus {b!r}. "
+                "This geometry map does not appear to belong to the supplied master arc."
+            )
+
+
 def load_master_arc_maps(
     master_arc: str | Path,
     *,
@@ -132,15 +161,21 @@ def load_master_arc_maps(
         arc = np.asarray(hdul[0].data, dtype=float)
         header = hdul[0].header.copy()
     with fits.open(paths["wavemap"], memmap=False) as hdul:
+        wave_header = hdul[0].header.copy()
+        _validate_geometry_map_header(wave_header, header, map_name="wavemap")
         wave = np.asarray(hdul[0].data, dtype=float)
         # WAVGOOD values can live on the geometry product even if absent on the
         # master arc, so copy them into the returned header when useful.
         for key in ("WAVGOOD0", "WAVGOOD1", "WAVALL0", "WAVALL1", "WAVMID"):
-            if key not in header and key in hdul[0].header:
-                header[key] = hdul[0].header[key]
+            if key not in header and key in wave_header:
+                header[key] = wave_header[key]
     with fits.open(paths["slicemap"], memmap=False) as hdul:
+        slice_header = hdul[0].header.copy()
+        _validate_geometry_map_header(slice_header, header, map_name="slicemap")
         slices = np.asarray(hdul[0].data)
     with fits.open(paths["posmap"], memmap=False) as hdul:
+        pos_header = hdul[0].header.copy()
+        _validate_geometry_map_header(pos_header, header, map_name="posmap")
         positions = np.asarray(hdul[0].data, dtype=float)
 
     if not (arc.shape == wave.shape == slices.shape == positions.shape):
@@ -498,7 +533,43 @@ def measure_arc_lsf(
 
     model = np.polyval(coeff, wave[keep])
     frac_resid = (fwhm[keep] - model) / model
-    spatial_fractional_rms = float(np.sqrt(np.nanmean(frac_resid**2)))
+
+    # Separate raw line-to-line scatter from coherent spatial structure.  The
+    # previous prototype called the RMS of *all* residuals "spatial RMS", which
+    # mixes measurement scatter, imperfect Gaussian line modeling, and genuine
+    # slice/position dependence.  Real KCWI arcs show thousands of line fits, so
+    # coherent group medians provide a much cleaner spatial diagnostic.
+    measurement_fractional_rms = float(np.sqrt(np.nanmean(frac_resid**2)))
+
+    sid_keep = sid[keep]
+    pbin_keep = pbin[keep]
+    group_medians = []
+    slice_medians = []
+    position_medians = []
+
+    for slice_value in np.unique(sid_keep):
+        m = sid_keep == slice_value
+        if np.any(m):
+            slice_medians.append(float(np.nanmedian(frac_resid[m])))
+        for pos_value in np.unique(pbin_keep[m]):
+            mp = m & (pbin_keep == pos_value)
+            if np.any(mp):
+                group_medians.append(float(np.nanmedian(frac_resid[mp])))
+
+    for pos_value in np.unique(pbin_keep):
+        m = pbin_keep == pos_value
+        if np.any(m):
+            position_medians.append(float(np.nanmedian(frac_resid[m])))
+
+    def _rms(values: list[float]) -> float:
+        arr = np.asarray(values, dtype=float)
+        if arr.size == 0 or not np.any(np.isfinite(arr)):
+            return np.nan
+        return float(np.sqrt(np.nanmean(arr**2)))
+
+    spatial_fractional_rms = _rms(group_medians)
+    slice_fractional_rms = _rms(slice_medians)
+    position_fractional_rms = _rms(position_medians)
 
     return ArcLSFResult(
         wavelength=wave[keep],
@@ -514,6 +585,9 @@ def measure_arc_lsf(
         wavelength_max=wmax,
         spectral_sampling_angstrom=float(sampling),
         spatial_fractional_rms=spatial_fractional_rms,
+        measurement_fractional_rms=measurement_fractional_rms,
+        slice_fractional_rms=slice_fractional_rms,
+        position_fractional_rms=position_fractional_rms,
         n_lines_total=len(measurements),
         n_lines_used=int(np.sum(keep)),
     )
@@ -560,6 +634,9 @@ def save_arc_lsf_result(result: ArcLSFResult, npz_path: str | Path, csv_path: st
         wavelength_max=result.wavelength_max,
         spectral_sampling_angstrom=result.spectral_sampling_angstrom,
         spatial_fractional_rms=result.spatial_fractional_rms,
+        measurement_fractional_rms=result.measurement_fractional_rms,
+        slice_fractional_rms=result.slice_fractional_rms,
+        position_fractional_rms=result.position_fractional_rms,
         n_lines_total=result.n_lines_total,
         n_lines_used=result.n_lines_used,
     )

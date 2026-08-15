@@ -158,6 +158,18 @@ def inspect_fits_extensions(path: str | Path) -> list[dict[str, Any]]:
     return result
 
 
+def summarize_integer_flags(flags: np.ndarray) -> dict[int, int]:
+    """Return exact counts of integer DRP flag values for provenance/QC logs.
+
+    This summary intentionally reports *values* rather than attempting to assign
+    undocumented scientific meanings to every bit.  The raw flag cube remains
+    available, and CRD_DAP's default hard mask conservatively rejects non-zero
+    values unless the target config explicitly chooses otherwise.
+    """
+    values, counts = np.unique(np.asarray(flags), return_counts=True)
+    return {int(v): int(c) for v, c in zip(values, counts)}
+
+
 def _find_spectral_fits_axis(header: fits.Header, ndim: int) -> int:
     """Return the one-based FITS axis number corresponding to wavelength."""
     for fits_axis in range(1, ndim + 1):
@@ -517,13 +529,51 @@ def save_prepared_cube(cube: KCWICube, destination: str | Path, *, overwrite: bo
     return destination
 
 
-def discover_arc_sidecars(master_arc: str | Path) -> dict[str, Path]:
-    """Discover KCWI DRP geometry maps associated with a master arc.
+def _header_match_token(header: fits.Header, key: str) -> str:
+    """Return a normalized string token used for calibration-file matching."""
+    return str(header.get(key, "")).strip().upper()
 
-    The DRP uses the master-arc root to locate ``*_wavemap.fits``,
-    ``*_slicemap.fits``, and ``*_posmap.fits`` products during later reduction
-    steps.  CRD_DAP mirrors that convention.  Explicit config overrides can be
-    supplied when a reduction has non-standard filenames.
+
+def _sidecar_header_matches_arc(sidecar_header: fits.Header, arc_header: fits.Header) -> bool:
+    """Return True when a geometry product plausibly belongs to ``arc_header``.
+
+    Real KCWI reductions do not always preserve the master-arc exposure number
+    in the *geometry-map filename*.  In the 2024-12-26 red-side test data used to
+    validate CRD_DAP, for example, the master arc is named ``...00025_marc.fits``
+    while the maps are named ``...00027_*map.fits``; their FITS ``OFNAME`` values
+    still identify the same original ``...00025.fits`` calibration.  Header
+    provenance is therefore a more reliable fallback than filename roots alone.
+    """
+    arc_ofname = _header_match_token(arc_header, "OFNAME")
+    side_ofname = _header_match_token(sidecar_header, "OFNAME")
+    if arc_ofname and side_ofname and arc_ofname != side_ofname:
+        return False
+
+    # These setup fields should agree for maps generated from the same geometry
+    # solution.  Missing values are tolerated here; the science-vs-arc check is
+    # stricter and occurs separately in validation.py.
+    for key in ("CAMERA", "IFUNAM", "BINNING", "BGRATNAM", "RGRATNAM"):
+        a = _header_match_token(arc_header, key)
+        b = _header_match_token(sidecar_header, key)
+        if a and b and a != b:
+            return False
+    return True
+
+
+def discover_arc_sidecars(master_arc: str | Path) -> dict[str, Path]:
+    """Discover KCWI DRP wavelength/slice/position maps for a master arc.
+
+    Discovery proceeds in three increasingly permissive stages:
+
+    1. the conventional identical filename root;
+    2. a unique same-root glob match;
+    3. a header-provenance search for maps whose ``OFNAME`` and instrumental
+       configuration match the master arc.
+
+    The third stage is required for real red-side reductions in which map
+    filenames can carry a different exposure number from the associated master
+    arc even though their FITS headers trace them to the same input arc.  Users
+    can always bypass discovery with explicit paths in the target config.
     """
     arc = Path(master_arc).expanduser().resolve()
     stem = arc.stem
@@ -533,30 +583,58 @@ def discover_arc_sidecars(master_arc: str | Path) -> dict[str, Path]:
             root = stem[: -len(suffix)]
             break
     else:
-        # Be permissive for hand-renamed master arcs: use the full stem and let
-        # the candidate/glob search below decide whether a unique sidecar exists.
         root = stem
 
+    arc_header = fits.getheader(arc, 0)
     result: dict[str, Path] = {}
     for kind in ("wavemap", "slicemap", "posmap"):
         exact = arc.with_name(f"{root}_{kind}.fits")
         if exact.exists():
-            result[kind] = exact
+            result[kind] = exact.resolve()
             continue
 
-        matches = sorted(arc.parent.glob(f"{root}*_{kind}.fits"))
-        if len(matches) == 1:
-            result[kind] = matches[0].resolve()
-        elif len(matches) == 0:
+        same_root = sorted(arc.parent.glob(f"{root}*_{kind}.fits"))
+        if len(same_root) == 1:
+            result[kind] = same_root[0].resolve()
+            continue
+        if len(same_root) > 1:
+            header_matches = []
+            for candidate in same_root:
+                try:
+                    if _sidecar_header_matches_arc(fits.getheader(candidate, 0), arc_header):
+                        header_matches.append(candidate.resolve())
+                except Exception:
+                    continue
+            if len(header_matches) == 1:
+                result[kind] = header_matches[0]
+                continue
+
+        # Filename-root discovery failed.  Search all nearby maps of this type
+        # and use FITS provenance/setup metadata.  This is intentionally local to
+        # the arc directory so it cannot wander through unrelated reductions.
+        candidates = sorted(arc.parent.glob(f"*_{kind}.fits"))
+        header_matches = []
+        for candidate in candidates:
+            try:
+                chead = fits.getheader(candidate, 0)
+            except Exception:
+                continue
+            if _sidecar_header_matches_arc(chead, arc_header):
+                header_matches.append(candidate.resolve())
+
+        if len(header_matches) == 1:
+            result[kind] = header_matches[0]
+        elif len(header_matches) == 0:
             raise FileNotFoundError(
                 f"Could not discover {kind} sidecar for master arc {arc}. "
-                f"Expected a product derived from root {root!r}."
+                "No filename-root or FITS-header provenance match was found. "
+                "Supply an explicit config path."
             )
         else:
             raise RuntimeError(
-                f"Multiple candidate {kind} sidecars found for {arc}: "
-                + ", ".join(str(m) for m in matches)
-                + ". Supply an explicit config path."
+                f"Multiple header-matched {kind} sidecars found for {arc}: "
+                + ", ".join(str(m) for m in header_matches)
+                + ". Supply an explicit config path to remove the ambiguity."
             )
 
     return result

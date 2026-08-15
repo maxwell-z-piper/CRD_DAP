@@ -4,13 +4,14 @@ Science-driver scripts may use ``import crd_utils as crd`` for common public
 functions while implementation details remain split into focused modules.
 """
 
-from .config import PipelineConfig, load_config, validate_config, snapshot_config, write_config_manifest
+from .config import PipelineConfig, load_config, validate_config, validate_input_paths, snapshot_config, write_config_manifest
 from .logging_utils import RunContext, create_run_context, setup_pipeline_logger, setup_step_logger, log_section
 from .io import (
     KCWICube,
     load_kcwi_cube,
     save_prepared_cube,
     inspect_fits_extensions,
+    summarize_integer_flags,
     wavelength_axis_from_header,
     discover_arc_sidecars,
     write_json,

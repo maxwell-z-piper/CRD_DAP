@@ -151,6 +151,37 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
         raise ValueError("REGISTRATION_WARNING_ARCSEC must be positive.")
 
 
+def validate_input_paths(cfg: PipelineConfig, path_keys: Iterable[str]) -> dict[str, Path]:
+    """Validate only the input paths required by a particular pipeline stage.
+
+    The repository-wide configuration contains inputs that are not needed by
+    every script.  Stage-specific validation avoids forcing, for example, the
+    XSL library or an RH3 science cube to exist merely to exercise BL-only
+    Script-1 development/validation mode.  Production science runs still request
+    all paths required by that stage explicitly.
+    """
+    resolved: dict[str, Path] = {}
+    absent: list[str] = []
+    for key in path_keys:
+        if not hasattr(cfg, key):
+            absent.append(f"{key}=<missing config key>")
+            continue
+        value = getattr(cfg, key)
+        if value is None:
+            absent.append(f"{key}=None")
+            continue
+        path = Path(value).expanduser().resolve()
+        if not path.exists():
+            absent.append(f"{key}={path}")
+        else:
+            resolved[key] = path
+    if absent:
+        raise FileNotFoundError(
+            "Required input path(s) for this stage do not exist:\n  - " + "\n  - ".join(absent)
+        )
+    return resolved
+
+
 def snapshot_config(cfg: PipelineConfig, destination_dir: str | Path) -> Path:
     """Copy the exact configuration file into a run directory."""
     destination_dir = Path(destination_dir)
