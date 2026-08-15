@@ -56,10 +56,7 @@ Shows the robust two-dimensional BL continuum surface-brightness distribution ob
 Conceptually,
 
 $$
-I_{\mathrm{BL}}(x,y)
-=
-\operatorname{median}_{\lambda\in\mathrm{good}}
-F_{\mathrm{BL}}(x,y,\lambda),
+I_{\mathrm{BL}}(x,y)=\mathrm{median}_{\lambda\in\mathrm{good}}F_{\mathrm{BL}}(x,y,\lambda),
 $$
 
 or the final adopted weighted equivalent.
@@ -287,11 +284,7 @@ Documents the effective delivered spatial resolution separately for both arms.
 The difference
 
 $$
-\Delta\mathrm{FWHM}_{\mathrm{PSF}}
-=
-\mathrm{FWHM}_{\mathrm{BL}}
--
-\mathrm{FWHM}_{\mathrm{RH3}}
+\Delta\mathrm{FWHM}_{\mathrm{PSF}}=\mathrm{FWHM}_{\mathrm{BL}}-\mathrm{FWHM}_{\mathrm{RH3}}
 $$
 
 informs whether Script 6 needs explicit PSF-aware transfer of the RH3 velocity model to BL.
@@ -424,8 +417,7 @@ Both panels share exactly the same `vmin` and `vmax`.
 Default upper limit:
 
 $$
-v_{\max}
-=P_{95}\left(\{S/N_{\mathrm{BL}}\}\cup\{S/N_{\mathrm{RH3}}\}\right).
+v_{\max}=P_{95}\left(\{S/N_{\mathrm{BL}}\}\cup\{S/N_{\mathrm{RH3}}\}\right).
 $$
 
 Values above the 95th percentile saturate but remain numerically preserved in data tables.
@@ -536,9 +528,7 @@ Likelihood minimum on a grid edge, multiple nearly disconnected minima, or a nea
 Maps the raw one-vs-two-component statistic before mock calibration:
 
 $$
-T_i
-=
-\chi^2_{1\mathrm{comp},i}-\chi^2_{2\mathrm{comp},i}.
+T_i=\chi^2_{1\mathrm{comp},i}-\chi^2_{2\mathrm{comp},i}.
 $$
 
 It must not be labeled as a formal significance/p-value map.
@@ -762,9 +752,7 @@ Large movement to a hard prior/boundary should be obvious.
 ### Quantity
 
 $$
-\sigma_{\mathrm{shear},i}^2
-=
-\frac{\sum_p I_p(V_p-\bar V_i)^2}{\sum_pI_p}.
+\sigma_{\mathrm{shear},i}^2=\frac{\sum_p I_p(V_p-\bar V_i)^2}{\sum_pI_p}.
 $$
 
 ### Purpose
@@ -789,11 +777,7 @@ Flag `HIGH_BIN_SHEAR` and consider explicit forward-model treatment or rebinning
 ### Quantity
 
 $$
-\Delta V_i
-=
-V_{i,\mathrm{bin-integrated}}
--
-V_{i,\mathrm{centroid}}.
+\Delta V_i=V_{i,\mathrm{bin-integrated}}-V_{i,\mathrm{centroid}}.
 $$
 
 ### Purpose
@@ -899,9 +883,7 @@ Separates *basin topology* from *statistical concentration*.
 For basin cell $c$,
 
 $$
-p_c
-\propto
-\exp(-\Delta\chi_c^2/2).
+p_c\propto\exp(-\Delta\chi_c^2/2).
 $$
 
 ### Suggested display
@@ -926,11 +908,7 @@ The listed mass levels are diagnostics only. They are not hard candidate-selecti
 ### Quantity
 
 $$
-\Delta\chi^2_{\mathrm{cube},i}
-=
-\chi_i^2(\mathrm{selected})
--
-\min_{V_A,V_B,f_A}\chi_i^2.
+\Delta\chi^2_{\mathrm{cube},i}=\chi_i^2(\mathrm{selected})-\min_{V_A,V_B,f_A}\chi_i^2.
 $$
 
 ### Purpose
@@ -1048,9 +1026,7 @@ Do not label the empirical recovery fraction as the posterior probability that a
 Maps
 
 $$
-p_{\mathrm{false},i}
-=
-P(T\ge T_i\mid\mathrm{true\ one\ component})
+p_{\mathrm{false},i}=P(T\ge T_i\mid\mathrm{true\ one\ component})
 $$
 
 from matched single-component simulations.
@@ -1400,9 +1376,7 @@ Comparison with `final_fA_RH3_map.png` may itself be scientifically informative 
 Prefer logarithmic age contrast when appropriate:
 
 $$
-\Delta\log Age
-=
-\log Age_A-\log Age_B.
+\Delta\log Age=\log Age_A-\log Age_B.
 $$
 
 ### Interpretation
@@ -1416,9 +1390,7 @@ Positive and negative values identify which disk is older. The sign convention m
 **Quantity**
 
 $$
-\Delta[M/H]
-=
-[M/H]_A-[M/H]_B.
+\Delta[M/H]=[M/H]_A-[M/H]_B.
 $$
 
 This is a direct physical contrast between the two stellar disks.
@@ -1435,11 +1407,7 @@ This is a direct physical contrast between the two stellar disks.
 These are *not* disk A-minus-B contrasts. They compare inference methods:
 
 $$
-\Delta Age_{A,\mathrm{method}}
-=
-Age_{A,\mathrm{likelihood-propagated}}
--
-Age_{A,\mathrm{anchored}}.
+\Delta Age_{A,\mathrm{method}}=Age_{A,\mathrm{likelihood-propagated}}-Age_{A,\mathrm{anchored}}.
 $$
 
 Same for Disk B.
