@@ -41,12 +41,10 @@ Unless a plot explicitly states otherwise:
 
 # Script 1 — cube preparation, calibration, registration, PSF/LSF, and noise
 
-The initial implementations of the Script-1 figures live in `crd_utils.plotting`. Script 1 saves the science cubes without an additional spatial resampling step; `BL_RH3_registration.png` uses a WCS-based diagnostic reprojection only, while physical sky-coordinate grids are saved separately for the later transfer of BL-defined PowerBins to RH3.
-
 ## `BL_collapsed_continuum.png`
 
 **Script:** 01  
-**Helper:** `crd_utils.plotting.plot_collapsed_continuum()`  
+**Helper:** planned `plot_collapsed_continuum()`  
 **Class:** QC + potential methods figure panel
 
 ### Purpose
@@ -143,7 +141,6 @@ Do not proceed to Script 2 until registration is resolved.
 ## `geometry_center_comparison.png`
 
 **Script:** 01 / updated in 04  
-**Helper:** `crd_utils.plotting.plot_center_comparison()`  
 **Class:** QC
 
 ### Purpose
@@ -224,7 +221,7 @@ Broad sections with unexpectedly high rejection fraction or sharp features coinc
 
 ### Purpose
 
-Documents the empirical instrumental LSF measured from the required master arc.
+Documents the empirical instrumental LSF measured from the required master arc and its DRP wavelength/slice/position geometry maps. Before this figure is produced, Script 1 verifies that the calibration matches the science cube in camera, grating, slicer/IFU, binning, and central wavelength. Geometry-map discovery is also checked through FITS provenance rather than relying only on filename exposure numbers.
 
 ### Quantity
 
@@ -250,7 +247,7 @@ Do not trust derived stellar dispersions until the cause is understood. If the t
 
 ---
 
-## `BL_LSF_spatial_variation.png` / `RH3_LSF_spatial_variation.png`
+## `LSF_spatial_variation.png`
 
 **Script:** 01  
 **Class:** QC
@@ -265,7 +262,7 @@ FWHM residual relative to the wavelength-only mean/model versus slice or spatial
 
 ### Healthy result
 
-Variation is small relative to the precision required for $\sigma_A,\sigma_B$.
+Variation is small relative to the precision required for $\sigma_A,\sigma_B$. The plotted spatial metric should describe coherent slice/position offsets from the global wavelength-only LSF model, not simply the raw RMS of every individual arc-line residual. The latter is saved separately because it also contains line-fitting scatter.
 
 ### Warning sign
 

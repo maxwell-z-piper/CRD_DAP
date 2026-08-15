@@ -151,6 +151,8 @@ quality/mask information, wavelength coordinates, spatial WCS, spectral resoluti
 
 Downstream scripts should not need to know raw FITS extension names.
 
+For production analysis, a stacked science cube must preserve a propagated `UNCERT` product. `MASK`, `FLAGS`, and `NOSKYSUB` should also be retained whenever available. A hand-stacked flux-only cube may still be useful for visual or structural testing, but it is not a valid input to the profile-likelihood analysis because the absolute $\chi^2$ scale would be undefined.
+
 ## 4.3 Hard bad-pixel / bad-spaxel treatment
 
 A spectral sample is unusable when, for example:
@@ -176,7 +178,7 @@ Scientifically valid wavelengths should not be permanently discarded in Script 1
 
 ## 4.5 Wavelength conventions
 
-Air/vacuum wavelength conventions and the adopted heliocentric/barycentric frame must be known explicitly. The pipeline must hard-fail rather than proceed with science and template wavelengths in inconsistent conventions.
+Air/vacuum wavelength conventions and the adopted heliocentric/barycentric frame must be known explicitly. The preferred Script-1 configuration is `auto`, meaning that CRD_DAP reads the convention from explicit KCWI DRP metadata and hard-fails if the header is ambiguous. In the real DRP products used to validate Script 1, the wavelength medium is encoded by the spectral `CTYPE`/comment and the applied radial-velocity correction is recorded by `VCORRTYP`. An explicit config value is still allowed, but it is cross-checked against the header rather than blindly trusted.
 
 A convention mismatch can mimic a velocity zero-point error and would contaminate both the RH3 likelihood surfaces and the inferred systemic velocity.
 
@@ -215,7 +217,7 @@ These estimates are compared. The final global kinematic center remains a free p
 
 BL and RH3 must be placed in a common sky-coordinate system. Identical array indices should not be assumed to represent identical physical positions unless WCS verification proves that they do.
 
-The output must allow Script 2 to apply one physical BL-defined PowerBin membership to the RH3 cube. The baseline Script-1 implementation does not resample either science cube onto the other arm because that would introduce an additional interpolation/covariance operation. Instead, it verifies the WCS alignment using a diagnostic RH3-to-BL image reprojection and saves common tangent-plane spatial-coordinate grids for both native cubes.
+The output must allow Script 2 to apply one physical BL-defined PowerBin membership to the RH3 cube.
 
 ## 4.9 PSF characterization
 
@@ -231,7 +233,9 @@ The RH3 PSF will also define the default XookSuut-style radial node spacing.
 
 ## 4.10 Empirical LSF from master arcs
 
-The primary LSF comes from unresolved lines in the required master-arc products. Script 1 also uses the KCWI DRP wavelength, slice, and position maps associated with the master-arc root (`*_wavemap.fits`, `*_slicemap.fits`, and `*_posmap.fits`) so detector arc pixels can be measured in wavelength and spatial/slice coordinates.
+The primary LSF comes from unresolved lines in the required master-arc products. The master arc is used together with its DRP `wavemap`, `slicemap`, and `posmap` geometry products. Script 1 first attempts conventional filename-root discovery, but also supports FITS-header provenance matching because real RED reductions can assign the geometry maps a different exposure number from the `*_marc.fits` filename. Explicit sidecar paths remain available in the target configuration.
+
+Before any LSF is accepted, the master arc must match the science cube in camera, arm-specific grating, slicer/IFU, detector binning, and central wavelength. This prevents a different RED grating calibration (for example RL) from being used accidentally for RH3 merely because both are red-side products.
 
 Aim to estimate
 
@@ -268,8 +272,6 @@ Script 1 must therefore characterize:
 - residual normalized-width / variance rescaling;
 - spectral covariance introduced by interpolation/resampling/stacking;
 - whether a full pPXF covariance matrix or a validated approximation is appropriate.
-
-The first Script-1 covariance estimate is intentionally diagnostic rather than final because no stellar model exists yet. It uses high-pass residuals from low-continuum spatial samples to identify obvious variance-scale or wavelength-correlation problems. The covariance treatment must be revisited using the first pPXF residuals before profile-likelihood widths are trusted quantitatively.
 
 This is a required precondition for trusting profile-likelihood widths.
 
@@ -411,7 +413,7 @@ $$
 The one-vs-two-component statistic can be defined as
 
 $$
-T_i = \chi^2_{1\mathrm{comp}, i} - \chi^2_{2\mathrm{comp},i}.
+T_i = \chi^2_{1\mathrm{comp}, i} - \chi^2_(2\mathrm{comp},i}.
 $$
 
 
