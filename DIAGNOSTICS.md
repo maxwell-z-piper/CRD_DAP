@@ -402,6 +402,41 @@ Either covariance is negligible beyond a small lag, or a stable structure is mea
 
 # Script 2 — master PowerBins
 
+## `binning_aperture.png`
+
+**Script:** 02  
+**Class:** critical QC
+
+### Purpose
+
+Shows the distinction between the Script-1 hard-good data footprint and the smaller region of the BL cube that Script 2 considers to contain useful stellar light for adaptive binning. This prevents exposed blank sky from being accreted into enormous low-information PowerBins.
+
+### Panels
+
+- smoothed BL continuum-detection/significance proxy with the configured threshold and final aperture boundary;
+- accepted aperture in tangent-plane coordinates with the adopted galaxy center.
+
+### Important interpretation
+
+The aperture threshold defines the *outer analysis domain*. It is not a native-spaxel S/N cut. Low-S/N spaxels inside the connected stellar-body aperture remain available to PowerBin.
+
+### Healthy result
+
+One connected region contains the galaxy center, follows the visible stellar body, excludes the large blank-sky footprint, and does not carve holes through plausible low-surface-brightness galaxy light.
+
+### Warning signs
+
+- aperture locks onto a remote artifact rather than the central galaxy;
+- only the bright nucleus survives;
+- aperture reaches the full exposed rectangle because sky structure is being interpreted as galaxy light;
+- disconnected islands or detector/stack edges dominate the detection proxy.
+
+### Action
+
+Inspect the BL continuum image and Script-1 validity maps before changing the threshold. If the automatic aperture is not scientifically defensible, do not proceed merely because PowerBin can technically run.
+
+---
+
 ## `master_bins.png`
 
 **Script:** 02  
@@ -409,24 +444,61 @@ Either covariance is negligible beyond a small lag, or a stable structure is mea
 
 ### Purpose
 
-Shows the physical BL-defined PowerBin tessellation used by every later stage.
+Shows the physical BL-defined PowerBin tessellation used by every later stage. This is the authoritative spatial partition; RH3 is not independently binned.
 
 ### Overlays
 
-- bin boundaries;
+- member pixels / bin identities;
 - adopted center;
-- signed $PA_{\mathrm{kin}}$ axis;
-- optional effective radius;
-- optional initial/updated $2\sigma$ locations;
-- IFU footprint.
+- signed $PA_{\mathrm{kin}}$ axis when available;
+- IFU/analysis footprint through the absence of bins outside the accepted aperture.
 
 ### Healthy result
 
-Bins are compact, follow the usable footprint, and become larger only where lower surface brightness requires it.
+Bins are compact and connected, small in high-S/N regions, and grow gradually toward lower surface brightness. The tessellation should cover the useful stellar body without extending across excluded sky or masked gaps.
 
 ### Warning signs
 
-Very elongated/nonphysical bins, tiny disconnected islands, or bins extending across masked gaps in a way that would make one spectrum spatially incoherent.
+Very elongated/nonphysical bins, tiny disconnected islands, extreme bin-size jumps driven by an incorrect aperture, or a bin layout that does not trace the visible galaxy.
+
+### Numerical companions
+
+- `master_bins.fits`;
+- `master_bin_table.ecsv`;
+- `master_bin_membership.npz`;
+- PowerBin capacity and RMS fractional scatter in the log/manifest.
+
+---
+
+## `BL_RH3_bin_transfer.png`
+
+**Script:** 02  
+**Class:** critical cross-arm QC
+
+### Purpose
+
+Verifies that the single BL-defined physical tessellation has been transferred onto the red/RH3 native grid through the celestial WCS rather than recomputed independently.
+
+### Panels
+
+- BL master bin membership;
+- RH3 native pixels labeled by transferred BL bin ID;
+- distance between each assigned RH3 pixel center and the nearest BL member-pixel center in arcseconds.
+
+### Healthy result
+
+The red/RH3 membership reproduces the same sky apertures, bin IDs remain spatially coherent, and transfer distances are comfortably below the configured limit over nearly all candidate pixels.
+
+### Warning signs
+
+- large unassigned holes inside the BL-defined galaxy aperture;
+- coherent edge offsets between arms;
+- transfer distances clustering near the maximum allowed value;
+- mismatched spatial scale/rotation making nearest-pixel membership inappropriate.
+
+### Action
+
+Do not independently re-PowerBin RH3 to make the plot look cleaner. Resolve the WCS/spatial-grid problem or implement an area-overlap aperture transfer if the native grids are genuinely different.
 
 ---
 
@@ -435,7 +507,17 @@ Very elongated/nonphysical bins, tiny disconnected islands, or bins extending ac
 **Script:** 02  
 **Class:** QC
 
-Separate convenience versions of achieved S/N maps.
+### Purpose
+
+Maps the measured median continuum S/N per spectral pixel for each final extracted spectrum. BL uses the configured BL binning/fitting window; RH3 uses its independently configured S/N-evaluation window but the **same BL-defined physical bins**.
+
+### Healthy result
+
+Most non-single BL bins lie near the target S/N, while single high-surface-brightness pixels may exceed it. RH3 S/N may differ substantially because it does not drive the tessellation.
+
+### Warning signs
+
+A large population of BL bins far below the target can indicate a mismatch between the PowerBin S/N proxy and the final extracted-spectrum measurement, poor wavelength coverage, or unmodeled spatial covariance.
 
 ---
 
@@ -451,7 +533,7 @@ Directly compares achieved S/N in the *same physical PowerBins* between the BL a
 ### Panels
 
 - left: BL S/N;
-- right: RH3 S/N.
+- right: RH3 S/N assigned onto the BL master bin map.
 
 ### Color normalization
 
@@ -463,11 +545,11 @@ $$
 v_{\max}=P_{95}\left(\{S/N_{\mathrm{BL}}\}\cup\{S/N_{\mathrm{RH3}}\}\right).
 $$
 
-Values above the 95th percentile saturate but remain numerically preserved in data tables.
+Values above the 95th percentile saturate visually but remain numerically preserved in the table and FITS products.
 
 ### Interpretation
 
-Equivalent colors mean equivalent S/N. This makes it immediately obvious whether RH3 has substantially higher information content in the BL-defined bins.
+Equivalent colors mean equivalent S/N. This makes it immediately obvious whether the red/RH3 spectra have enough information in the BL-defined apertures and prevents independent autoscaling from hiding cross-arm differences.
 
 ---
 
@@ -476,7 +558,21 @@ Equivalent colors mean equivalent S/N. This makes it immediately obvious whether
 **Script:** 02  
 **Class:** QC
 
-Maps physical bin area or number of member spaxels. This helps interpret later population/kinematic resolution and identify bins where intra-bin velocity shear may become important.
+### Purpose
+
+Maps the physical area of every BL master PowerBin in square arcseconds.
+
+### Interpretation
+
+Large outer bins are expected as surface brightness falls, but their size directly sets the spatial resolution of later kinematic/population maps and the scale over which intra-bin velocity shear must eventually be evaluated.
+
+### Warning signs
+
+A few bins becoming dramatically larger than neighboring bins can indicate an overly permissive analysis aperture, poor S/N, or masked geometry that deserves inspection.
+
+### Numerical companions
+
+Area and BL/RH3 member counts are saved per bin in `master_bin_table.ecsv`, while exact native member pixels are saved in `master_bin_membership.npz`.
 
 ---
 

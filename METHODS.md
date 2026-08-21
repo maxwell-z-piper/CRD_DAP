@@ -305,21 +305,63 @@ This is a required precondition for trusting profile-likelihood widths.
 
 # 5. Script 2 — BL-defined master PowerBins
 
-## 5.1 BL alone defines the spatial tessellation
+## 5.1 Stage input and provenance
 
-PowerBin is run once on BL at the target S/N, initially expected to be around
+Script 2 consumes the immutable products written by one completed Script-1 run:
+
+- `prepared_BL.fits`;
+- `prepared_RH3.fits`;
+- `BL_spatial_coordinates.npz`;
+- `RH3_spatial_coordinates.npz`;
+- the preliminary Script-1 spectral-correlation products when available.
+
+The selected Script-1 run directory is written into the Script-2 FITS headers and JSON manifest. Script 2 must not reconstruct the original DRP/KcwiKit masks; it uses the final `GOODMASK`, `GOODSPAX`, and `GOODWAVE` state saved by Script 1.
+
+## 5.2 BL alone defines the spatial tessellation
+
+PowerBin is run **once** on BL. The baseline target is
 
 $$
 (S/N)_{\mathrm{BL}}\approx40.
 $$
 
-The resulting membership map is the master spatial grid for both arms.
+The configured target is interpreted as an approximate continuum S/N per spectral pixel in a user-selected BL rest-frame fitting window. For each BL spatial sample $p$, Script 2 calculates a robust continuum signal $S_p$ and formal noise $N_p$ from the median flux density and median variance over usable wavelengths in that window.
 
-RH3 is **not** independently PowerBinned in the production analysis.
+For a candidate bin with member set $\mathcal B_i$, the baseline diagonal-noise capacity is
 
-## 5.2 Apply identical physical memberships to RH3
+$$
+C_i=\left[\frac{\sum_{p\in\mathcal B_i}S_p}{\sqrt{\sum_{p\in\mathcal B_i}N_p^2}}\right]^2.
+$$
 
-For bin $i$ with member-spaxel set $\mathcal B_i$, extract
+PowerBin therefore receives the callable capacity $C_i$ and the target capacity
+
+$$
+C_{\mathrm{target}}=(S/N)_{\mathrm{BL,target}}^2.
+$$
+
+The callable form is retained even in the diagonal-noise baseline because PowerBin permits non-additive capacities. A future empirically calibrated KcwiKit **spatial** covariance correction can therefore be inserted without changing the tessellation architecture. Script 1 measured spectral correlation along wavelength; that result is not by itself a valid spatial covariance law, so Script 2 does not invent one.
+
+PowerBin is mandatory for the production pipeline. Script 2 must never silently fall back to legacy VorBin.
+
+## 5.3 Useful stellar-body aperture
+
+The Script-1 hard-good footprint identifies where data exist, but it includes blank sky around the galaxy. Giving every exposed sky pixel to PowerBin would allow very large low-information outer bins to form.
+
+Script 2 therefore defines a separate **analysis aperture** before PowerBin. The baseline automatic mode uses a smoothed BL continuum-detection proxy, selects the connected component nearest the independently adopted galaxy center, optionally dilates that component, and finally intersects it with the Script-1 good-spaxel mask.
+
+This aperture threshold is a boundary-definition diagnostic, **not** a per-spaxel science S/N cut. Once a pixel is inside the accepted stellar-body aperture, low native S/N alone does not remove it; PowerBin is allowed to combine faint neighboring pixels until the target bin S/N is reached.
+
+The aperture threshold, smoothing scale, dilation, minimum size, and optional maximum physical radius are configurable and must be inspected on real data rather than treated as fundamental constants.
+
+## 5.4 Apply identical physical memberships to RH3
+
+RH3 is **not** independently PowerBinned.
+
+The BL membership map is transferred to the red/RH3 native grid through the celestial WCS. For the baseline paired observations the two arms use the same slicer and KcwiKit spatial sampling, so each valid red/RH3 pixel center is transformed to BL pixel coordinates and assigned to the nearest BL member pixel only when the sky-plane separation is within the configured tolerance.
+
+Script 2 first checks that the BL and RH3 spatial pixel scales agree within tolerance. If the grids are materially different, nearest-pixel transfer is rejected rather than silently pretending that the apertures are identical; a future area-overlap/polygon transfer would then be required.
+
+For bin $i$, the resulting spectra represent the same geometric sky aperture as closely as the native sampling permits:
 
 $$
 F_i^{\mathrm{BL}}(\lambda)
@@ -328,29 +370,73 @@ $$
 and
 
 $$
-F_i^{\mathrm{RH3}}(\lambda)
+F_i^{\mathrm{RH3}}(\lambda).
 $$
 
-from the same physical sky region after registration.
+The achieved RH3 S/N is measured but never drives the bin boundaries.
 
-The achieved RH3 S/N is measured but does not drive the bin boundaries.
+## 5.5 Geometric aperture spectra and formal uncertainties
 
-## 5.3 Per-bin products
+Spatial extraction is a **geometric sum**, not an inverse-variance-weighted spatial average. This preserves the actual light mixture that later bin-integrated disk models must predict.
 
-Store at least:
+For one wavelength sample,
 
-- bin ID;
-- member spaxels;
-- centroid;
-- physical area;
-- BL S/N;
-- RH3 S/N;
-- coadded spectra and uncertainties/covariances;
-- flux weights needed for bin-integrated disk-model calculations.
+$$
+F_i(\lambda)=\sum_{p\in\mathcal B_i}F_p(\lambda).
+$$
 
-## 5.4 Shared S/N plot normalization
+If the input cube is explicitly in surface-brightness units per square arcsecond, the sum is multiplied by the spatial pixel area so the extracted spectrum represents integrated aperture flux. Formal diagonal variance is propagated as
 
-BL and RH3 S/N maps use the same color normalization. The default upper limit is the 95th percentile of the **combined** BL+RH3 bin-S/N distribution, so a given color means the same S/N in both panels while a few extremely high-S/N bins do not destroy contrast elsewhere.
+$$
+\mathrm{Var}_i(\lambda)=\sum_{p\in\mathcal B_i}\mathrm{Var}_p(\lambda).
+$$
+
+A wavelength sample is accepted for the bin only when at least the configured fraction of its spatial members contributes a valid sample.
+
+The Script-1 preliminary spectral-correlation sequence is copied into the Script-2 spectral product as provenance/QC information. It is **not** converted into a final covariance matrix because that high-pass diagnostic was intentionally preliminary.
+
+## 5.6 Continuum-light weights and bin geometry
+
+For later PSF/bin-integrated modeling, Script 2 saves the complete native membership and a normalized positive continuum-light weight for every member pixel. Within one bin,
+
+$$
+\sum_{p\in\mathcal B_i}w_{i,p}=1.
+$$
+
+Both geometric and continuum-light-weighted centroids are saved. If all measured continuum values in a bin are non-positive because of noise, equal geometric weights are used as a transparent fallback rather than producing undefined weights.
+
+## 5.7 Per-bin products
+
+The authoritative Script-2 products include:
+
+- `master_bins.fits`: BL master membership, analysis aperture, per-bin BL/RH3 S/N maps, area map, transferred RH3 membership, and WCS-transfer distance;
+- `master_bin_spectra.fits`: wavelength, aperture-summed flux, formal uncertainty, valid-sample mask, and number of contributing spaxels for both arms, plus preliminary Script-1 spectral-correlation sequences when available;
+- `master_bin_table.ecsv`: one row per bin with member counts, area, geometric/flux centroids, sky position, BL/RH3 S/N, PowerBin capacity, RH3 transfer coverage, and single-pixel status;
+- `master_bin_membership.npz`: complete BL and RH3 native pixel membership, tangent-plane coordinates, continuum-light weights, transfer distances, and PowerBin generator information;
+- `script02_manifest.json`: source Script-1 run, configuration/provenance, covariance assumptions, transfer completeness, quality flags, and product paths.
+
+These products are intentionally generous because later stages need exact membership rather than only a plotted bin map.
+
+## 5.8 Shared S/N plot normalization
+
+BL and RH3 S/N maps use the same color normalization. The default upper limit is the 95th percentile of the **combined** BL+RH3 bin-S/N distribution,
+
+$$
+v_{\max}=P_{95}\left(\{S/N_{\mathrm{BL}}\}\cup\{S/N_{\mathrm{RH3}}\}\right),
+$$
+
+so a given color means the same S/N in both panels while a few very high-S/N bins do not destroy contrast elsewhere.
+
+## 5.9 Script-2 quality flags
+
+Important non-fatal flags include:
+
+- `SPATIAL_COVARIANCE_UNCALIBRATED`: the current PowerBin capacity uses formal diagonal spatial variance because no empirical spatial covariance law has yet been validated;
+- `BIN_TRANSFER_INCOMPLETE`: fewer red/RH3 pixels than expected could be assigned to the BL-defined physical apertures;
+- `LOW_BL_BIN_SN`: the measured S/N of one or more final BL spectra falls substantially below the configured target despite the PowerBin proxy;
+- `BINNING_APERTURE_WARNING`: the useful-stellar-body aperture requires manual inspection.
+
+A flag is not an instruction to tune parameters until the warning disappears. It records where a scientific assumption or data limitation must be inspected.
 
 ---
 
