@@ -181,6 +181,12 @@ ARC_MIN_GOOD_LINES = 6
 ARC_LSF_SIGMA_CLIP = 3.0
 LSF_SPATIAL_VARIATION_WARNING_FRACTION = 0.10
 
+# A polynomial LSF is only empirically supported between the bluest and reddest
+# accepted arc-line measurements. If an instrument-good edge extends farther
+# than this many Angstroms beyond that support, Script 1 raises a QC flag and
+# downstream fitting must not silently extrapolate the LSF.
+LSF_EDGE_EXTRAPOLATION_WARNING_ANGSTROM = 100.0
+
 # Master arc and science cube must share camera, grating, slicer, binning, and
 # central wavelength. This tolerance applies only to the central-wavelength
 # header comparison; it is not an LSF tolerance.
@@ -218,6 +224,20 @@ CENTER_CENTROID_MIN_PERCENTILE = 60.0
 COMMON_CENTER_SOURCE = "BL_peak"  # currently supported: "BL_peak", "RH3_peak"
 CENTER_WARNING_ARCSEC = 0.5
 REGISTRATION_WARNING_ARCSEC = 0.25
+
+# Registration-image construction and trust criteria. If the two arms share a
+# sufficiently wide instrument-good wavelength interval, Script 1 collapses the
+# same observed-frame wavelengths in both arms before cross-correlation. This
+# suppresses false offsets from wavelength-dependent morphology. If there is no
+# useful overlap, full-arm continuum images are used instead. In either case the
+# numerical shift is trusted only when both images pass the morphology-contrast
+# screen; otherwise Script 1 records REGISTRATION_INCONCLUSIVE and relies on the
+# independent WCS/center comparison rather than reporting a spurious shift.
+REGISTRATION_USE_COMMON_WAVELENGTH_IF_AVAILABLE = True
+REGISTRATION_MIN_COMMON_RANGE_ANGSTROM = 50.0
+REGISTRATION_MIN_COMMON_CHANNELS = 20
+REGISTRATION_MIN_CONTRAST_SNR = 5.0
+REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX = 1.0
 
 # Noise/covariance characterization. Exact implementation is developed in
 # crd_utils.noise; these switches record the intended production behavior.
