@@ -233,7 +233,11 @@ These estimates are compared. The final global kinematic center remains a free p
 
 BL and RH3 must be placed in a common sky-coordinate system. Identical array indices should not be assumed to represent identical physical positions unless WCS verification proves that they do.
 
-The output must allow Script 2 to apply one physical BL-defined PowerBin membership to the RH3 cube.
+When the two arms share a sufficiently wide instrument-good observed-frame wavelength interval, the registration diagnostic should collapse the *same wavelength interval* in both cubes before morphology cross-correlation. This minimizes wavelength-dependent stellar-population/color structure as a false source of apparent astrometric shift. The minimum overlap width and number of channels are configurable. If no useful overlap exists, the normal full-arm continuum images may still be compared.
+
+A numerical morphology cross-correlation shift is trusted only when both registration images contain sufficient spatial contrast. Script 1 records a robust contrast statistic for each image and returns the cross-correlation as **inconclusive** rather than forcing a shift when either image is nearly featureless. In that case, the independent sky-coordinate peak/centroid comparison remains the relevant astrometric QC and no spurious residual shift is adopted.
+
+The science cubes themselves are not resampled in Script 1. The output must allow Script 2 to apply one physical BL-defined PowerBin membership to the RH3 cube using saved sky/tangent-plane coordinates.
 
 ## 4.9 PSF characterization
 
@@ -272,6 +276,10 @@ $$
 $$
 
 If the right-hand side is negative, the templates are broader than the data at that wavelength and the pipeline must report this explicitly rather than taking an absolute value or silently forcing a convolution.
+
+The instrument-good interval from `WAVGOOD0/1` and the **empirical accepted-line support** of the LSF model are distinct quantities. The wavelength polynomial may be fit using line measurements that occupy only a subset of the instrument-good range. Script 1 therefore stores both intervals. By default, evaluating the saved LSF model outside the bluest-to-reddest accepted line centers returns `NaN` rather than silently extrapolating the polynomial. A configurable edge-gap threshold raises `LSF_EMPIRICAL_COVERAGE_GAP` when a substantial instrument-good region lacks direct arc-line support. Later stellar fitting must mask such wavelengths or supply an independently validated LSF treatment.
+
+Individual arc-line widths can show substantially more scatter than the coherent resolution variation across the field. Script 1 therefore preserves both: the full line-by-line residual diagnostic and a spatially averaged summary of slice and within-slice position-bin medians. The latter is the more relevant test of whether one wavelength-only LSF is adequate for the science.
 
 ## 4.11 Noise and covariance characterization
 

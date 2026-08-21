@@ -111,30 +111,34 @@ Demonstrates that BL and RH3 have been placed onto the same physical sky coordin
 
 ### Suggested panels
 
-1. BL collapsed continuum;
-2. RH3 collapsed continuum transformed into BL coordinates;
-3. overlay or normalized difference image.
+1. BL registration continuum;
+2. RH3 registration continuum transformed into BL coordinates;
+3. normalized morphology difference image **only when the cross-correlation passes the contrast screen**.
 
-### Overlays
+When a sufficiently wide common instrument-good wavelength interval exists, both registration images are collapsed over that same observed-frame interval and the interval is written into the figure title/metadata. Otherwise the diagnostic falls back to the full-arm continuum images.
 
-- adopted common center;
-- measured registration shift $(\Delta x,\Delta y)$;
-- common IFU overlap region.
+### Overlays / annotations
+
+- wavelength interval or full-arm mode used to construct the registration images;
+- robust morphology-contrast statistic for each arm;
+- measured residual shift $(\Delta x,\Delta y)$ when the cross-correlation is valid;
+- an explicit `inconclusive` annotation rather than a numerical shift when either image lacks adequate contrast.
 
 ### Healthy result
 
-Galaxy morphology aligns to within a small fraction of the delivered PSF or the documented registration uncertainty.
+Either (1) both images have sufficient contrast and the residual morphology shift is small relative to the delivered PSF / registration requirement, or (2) morphology cross-correlation is explicitly declared inconclusive while the independent WCS peak/centroid comparison remains mutually consistent. A low-contrast image is **not** evidence for a real astrometric offset.
 
 ### Warning signs
 
-- coherent dipole residual in the difference image;
+- coherent dipole residual in a valid normalized-difference image;
 - center offset comparable to a PowerBin dimension;
 - WCS rotation/scale mismatch;
-- non-overlapping regions later treated as shared apertures.
+- non-overlapping regions later treated as shared apertures;
+- `REGISTRATION_INCONCLUSIVE`, which means the numerical cross-correlation shift must not be interpreted.
 
 ### Action
 
-Do not proceed to Script 2 until registration is resolved.
+Resolve a genuine center/WCS disagreement before Script 2. If the morphology cross-correlation alone is inconclusive because one passband has insufficient contrast, use the independent sky-coordinate center agreement and appropriate external astrometric information rather than forcing the cross-correlation.
 
 ---
 
@@ -184,52 +188,7 @@ Large contiguous missing regions, slice-like patterns, or a surprising number of
 
 ### Action
 
-Inspect the KcwiKit stack mask, effective-exposure coverage, variance validity, and `MIN_GOOD_WAVELENGTH_FRACTION` before PowerBin. Zero-exposure output-grid padding should be excluded rather than interpreted as low-S/N galaxy data.
-
----
-
-## `BL_effective_exposure.png` / `RH3_effective_exposure.png`
-
-**Script:** 01  
-**Helper:** `plot_effective_exposure()`  
-**Class:** critical stacking/coverage QC
-
-### Purpose
-
-Shows which parts of the requested KcwiKit output grid contain actual contributing science exposure and how consistently each spatial location is covered across the instrument-good wavelength range. This directly separates real low-surface-brightness galaxy data from empty padding created because the requested stack dimensions were intentionally generous.
-
-### Panels
-
-1. median KcwiKit effective exposure over Script-1 good wavelengths, in seconds;
-2. fraction of instrument-good wavelengths with positive effective exposure, from 0 to 1.
-
-### Inputs
-
-- KcwiKit `*_ecubes.fits`;
-- Script-1 instrument/global-good wavelength mask;
-- the per-spaxel wavelength-coverage fraction saved with the prepared cube.
-
-### Healthy result
-
-The illuminated KCWI footprint is spatially coherent, central/overlap regions have the expected high effective exposure, partially covered dither edges are visible as lower exposure/coverage, and the deliberately oversized output-grid padding is exactly zero.
-
-### Warning signs
-
-- non-zero effective exposure far outside the plausible IFU footprint;
-- holes with zero exposure through the bright central galaxy;
-- BL and RH3 footprints grossly inconsistent with the observations;
-- large areas with only tiny wavelength-coverage fractions that would otherwise be mistaken for usable low-S/N data.
-
-### Action
-
-Inspect the KcwiKit stack, input trimming, alignment, mask handling, and output-grid definition. Do not proceed to PowerBin until zero-exposure padding and genuinely covered spaxels are cleanly distinguished.
-
-### Numerical/log companions
-
-- `EXPOSURE` extension in `prepared_BL.fits` / `prepared_RH3.fits`;
-- `COVFRAC` extension;
-- effective-exposure summary in `script01_manifest.json`;
-- positive-exposure sample fraction and minimum/median/maximum positive exposure in `pipeline.log`.
+Inspect DRP mask interpretation and `MIN_GOOD_WAVELENGTH_FRACTION` before PowerBin.
 
 ---
 
@@ -240,7 +199,7 @@ Inspect the KcwiKit stack, input trimming, alignment, mask handling, and output-
 
 ### Purpose
 
-Shows, as a function of wavelength, the fraction of spatial samples flagged unusable **within the real covered spatial footprint**. Zero-exposure padding outside the KcwiKit footprint is excluded from this denominator. This distinguishes isolated bad spaxels from wavelength channels that are globally problematic without allowing an oversized stack canvas to make every channel look bad.
+Shows, as a function of wavelength, the fraction of spatial samples flagged unusable. This distinguishes isolated bad spaxels from wavelength channels that are globally problematic.
 
 ### Axes
 
@@ -266,7 +225,7 @@ Broad sections with unexpectedly high rejection fraction or sharp features coinc
 
 ### Purpose
 
-Documents the empirical instrumental LSF measured from the required master arc.
+Documents the empirical instrumental LSF measured from the required master arc and its DRP wavelength/slice/position geometry maps. Before this figure is produced, Script 1 verifies that the calibration matches the science cube in camera, grating, slicer/IFU, binning, and central wavelength. Geometry-map discovery is also checked through FITS provenance rather than relying only on filename exposure numbers.
 
 ### Quantity
 
@@ -275,24 +234,27 @@ Measured arc-line FWHM or Gaussian $\sigma$ as a function of wavelength, optiona
 ### Recommended display
 
 - measured individual arc-line widths;
-- smooth adopted LSF model;
-- nominal instrumental-resolution expectation as a secondary reference;
-- XSL template LSF overlaid in compatible units.
+- smooth adopted LSF model drawn **only across the empirically supported accepted-line interval**;
+- instrument-good `WAVGOOD0/1` boundaries;
+- shaded edge regions that are instrument-good but lack direct accepted-line support;
+- nominal instrumental-resolution expectation as a secondary reference, if useful;
+- XSL template LSF overlaid in compatible units when available.
 
 ### Warning signs
 
 - large unexplained scatter between neighboring lines;
 - strong spatial dependence ignored by the adopted model;
 - template width exceeding the data width over important wavelengths;
-- poor smooth model residuals.
+- poor smooth model residuals;
+- a large gap between `WAVGOOD0/1` and the bluest/reddest accepted arc-line measurements.
 
 ### Action
 
-Do not trust derived stellar dispersions until the cause is understood. If the template is intrinsically broader than RH3 over critical regions, reconsider template/data matching strategy.
+Do not trust derived stellar dispersions until the cause is understood. If the template is intrinsically broader than RH3 over critical regions, reconsider template/data matching strategy. If `LSF_EMPIRICAL_COVERAGE_GAP` is raised, later fitting must mask wavelengths outside the empirical LSF support or introduce an independently validated LSF model; the polynomial must not be silently extrapolated.
 
 ---
 
-## `LSF_spatial_variation.png`
+## `BL_LSF_spatial_variation.png` / `RH3_LSF_spatial_variation.png`
 
 **Script:** 01  
 **Class:** QC
@@ -307,11 +269,43 @@ FWHM residual relative to the wavelength-only mean/model versus slice or spatial
 
 ### Healthy result
 
-Variation is small relative to the precision required for $\sigma_A,\sigma_B$.
+Variation is small relative to the precision required for $\sigma_A,\sigma_B$. The plotted spatial metric should describe coherent slice/position offsets from the global wavelength-only LSF model, not simply the raw RMS of every individual arc-line residual. The latter is saved separately because it also contains line-fitting scatter.
 
 ### Warning sign
 
 Coherent slice-dependent resolution shifts comparable to the astrophysical dispersion uncertainty.
+
+---
+
+## `BL_LSF_spatial_summary.png` / `RH3_LSF_spatial_summary.png`
+
+**Script:** 01  
+**Class:** critical QC + methods/publication candidate
+
+### Purpose
+
+Separates coherent field dependence of the LSF from the much larger scatter of individual arc-line fits. This is the preferred visual diagnostic for deciding whether a wavelength-only LSF is adequate.
+
+### Panels
+
+1. median fractional FWHM residual for each KCWI slice, with the 16th--84th percentile interval of accepted line measurements in that slice;
+2. median fractional FWHM residual for each within-slice position bin, again with the 16th--84th percentile interval.
+
+The title reports the RMS of the group medians used by the numerical QC metrics.
+
+### Healthy result
+
+Group medians remain close to zero and their RMS is small compared with the precision required for the stellar-dispersion measurements, even if the line-by-line scatter plot appears visually broad.
+
+### Warning signs
+
+- coherent monotonic or step-like offsets with slice ID;
+- position-bin medians systematically displaced from zero;
+- group-median RMS approaching the astrophysical dispersion precision requirement.
+
+### Action
+
+If coherent spatial variation is non-negligible, carry a slice/position-dependent LSF into later bin-level template matching rather than using one global wavelength-only curve.
 
 ---
 
