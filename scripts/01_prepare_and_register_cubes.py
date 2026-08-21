@@ -180,25 +180,59 @@ def _run_lsf(
 ) -> tuple[psf_lsf.ArcLSFResult, dict[str, Path], validation.CalibrationMatch]:
     prefix = arm.upper()
     master_arc = Path(getattr(cfg, f"{prefix}_MASTER_ARC")).expanduser().resolve()
-    logger.info("Measuring %s LSF from master arc: %s", arm, master_arc)
+
+    # The pipeline arm labels remain BL/RH3 because the downstream science
+    # architecture is organized around those two data streams.  The *actual*
+    # grating expected in each stream is configurable so Script 1 can also be
+    # integration-tested on other KCWI/KCRM setups (for example the existing
+    # RL red-side test data) without disabling any calibration safety checks.
+    canonical_grating = "BL" if prefix == "BL" else "RH3"
+    expected_grating = str(
+        getattr(cfg, f"{prefix}_EXPECTED_GRATING", canonical_grating)
+    ).strip().upper()
+
+    logger.info(
+        "Measuring %s LSF from master arc: %s | configured expected grating=%s",
+        arm,
+        master_arc,
+        expected_grating,
+    )
+
+    if expected_grating != canonical_grating:
+        logger.warning(
+            "NONSTANDARD_%s_GRATING | %s pipeline arm is configured for grating %s "
+            "rather than canonical %s. Script 1 will validate and characterize "
+            "this setup normally, but do not interpret later %s-specific science "
+            "stages as a production %s analysis unless they are explicitly adapted.",
+            prefix,
+            arm,
+            expected_grating,
+            canonical_grating,
+            canonical_grating,
+            canonical_grating,
+        )
 
     # Before measuring any widths, verify that the calibration actually belongs
-    # to the same instrumental setup as the science cube. A RED/RL arc is not a
-    # valid RH3 calibration simply because both use the red detector.
+    # to the same instrumental setup as the science cube. Configurability changes
+    # only the requested grating name: science and arc still have to match that
+    # grating, the same camera, IFU, binning, and central wavelength.
     arc_header = psf_lsf.read_primary_header(master_arc)
     calibration_match = validation.validate_arc_science_configuration(
         cube.header,
         arc_header,
         arm=arm,
+        expected_grating=expected_grating,
         central_wavelength_tolerance_angstrom=float(
             getattr(cfg, "ARC_SCIENCE_CWAVE_TOLERANCE_ANGSTROM", 0.5)
         ),
     )
     logger.info(
-        "%s science/master-arc configuration verified: camera=%s, grating=%s, "
-        "IFU=%s, binning=%s, central wavelength=%s A",
+        "%s science/master-arc configuration verified: camera=%s, expected grating=%s, "
+        "science grating=%s, arc grating=%s, IFU=%s, binning=%s, central wavelength=%s A",
         arm,
         calibration_match.arc_camera,
+        calibration_match.expected_grating,
+        calibration_match.science_grating,
         calibration_match.arc_grating,
         calibration_match.arc_ifu,
         calibration_match.arc_binning,
