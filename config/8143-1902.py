@@ -239,6 +239,12 @@ REGISTRATION_MIN_COMMON_CHANNELS = 20
 REGISTRATION_MIN_CONTRAST_SNR = 5.0
 REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX = 1.0
 
+# Script 1 measures only the *residual* shift after the two cubes have already
+# been placed on sky WCS. Limit the morphology cross-correlation to this local
+# radius so IFU edges or weak continuum structure cannot drive a spurious large
+# translation. A correlation peak at this boundary is treated as inconclusive.
+REGISTRATION_MAX_RESIDUAL_SHIFT_ARCSEC = 2.0
+
 # Noise/covariance characterization. Exact implementation is developed in
 # crd_utils.noise; these switches record the intended production behavior.
 ESTIMATE_VARIANCE_RESCALING = True
