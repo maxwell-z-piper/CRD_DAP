@@ -111,9 +111,9 @@ Demonstrates that BL and RH3 have been placed onto the same physical sky coordin
 
 ### Suggested panels
 
-1. BL registration continuum;
-2. RH3 registration continuum transformed into BL coordinates;
-3. normalized morphology difference image **only when the cross-correlation passes the contrast screen**.
+1. BL registration continuum, displayed only over the common valid BL/RH3 footprint with a robust common-footprint-derived stretch;
+2. RH3 registration continuum transformed into BL coordinates, on the same common valid footprint and with its own robust stretch;
+3. normalized morphology difference image **only when the cross-correlation passes the registration QC**. If registration is inconclusive, this panel instead shows the common-valid-footprint mask and explicitly states that no residual image or numerical shift was adopted.
 
 When a sufficiently wide common instrument-good wavelength interval exists, both registration images are collapsed over that same observed-frame interval and the interval is written into the figure title/metadata. Otherwise the diagnostic falls back to the full-arm continuum images.
 
@@ -122,7 +122,9 @@ When a sufficiently wide common instrument-good wavelength interval exists, both
 - wavelength interval or full-arm mode used to construct the registration images;
 - robust morphology-contrast statistic for each arm;
 - measured residual shift $(\Delta x,\Delta y)$ when the cross-correlation is valid;
-- an explicit `inconclusive` annotation rather than a numerical shift when either image lacks adequate contrast.
+- an explicit `inconclusive` annotation rather than a numerical shift when the registration QC fails;
+- the common valid footprint in the third panel for inconclusive cases, instead of an unstable normalized residual;
+- robust image stretches measured only from common-valid pixels so narrow IFU/reprojection edge artifacts do not dominate the morphology display.
 
 ### Healthy result
 
