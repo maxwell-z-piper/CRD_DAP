@@ -11,6 +11,7 @@ def test_script02_support_api_is_complete():
         "run_powerbin",
         "transfer_bin_map_by_wcs",
         "coadd_bin_spectra",
+        "achieved_sn_diagnostics_per_bin",
         "achieved_sn_per_bin",
         "normalized_flux_weights",
         "bin_centroids",
@@ -39,3 +40,4 @@ def test_script02_driver_helper_keywords_match():
 def test_script02_driver_exists():
     repo_root = Path(__file__).resolve().parents[1]
     assert (repo_root / "scripts" / "02_make_master_BL_bins.py").is_file()
+    assert (repo_root / "scripts" / "inspect_script02_sn.py").is_file()
