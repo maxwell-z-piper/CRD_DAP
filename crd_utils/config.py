@@ -183,6 +183,16 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
         raise ValueError("ARC_MIN_GOOD_LINES must be >= 3.")
     if float(getattr(cfg, "REGISTRATION_WARNING_ARCSEC", 0.25)) <= 0:
         raise ValueError("REGISTRATION_WARNING_ARCSEC must be positive.")
+    if float(getattr(cfg, "REGISTRATION_MIN_COMMON_RANGE_ANGSTROM", 50.0)) < 0:
+        raise ValueError("REGISTRATION_MIN_COMMON_RANGE_ANGSTROM cannot be negative.")
+    if int(getattr(cfg, "REGISTRATION_MIN_COMMON_CHANNELS", 20)) < 1:
+        raise ValueError("REGISTRATION_MIN_COMMON_CHANNELS must be >= 1.")
+    if float(getattr(cfg, "REGISTRATION_MIN_CONTRAST_SNR", 5.0)) <= 0:
+        raise ValueError("REGISTRATION_MIN_CONTRAST_SNR must be positive.")
+    if float(getattr(cfg, "REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX", 1.0)) < 0:
+        raise ValueError("REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX cannot be negative.")
+    if float(getattr(cfg, "LSF_EDGE_EXTRAPOLATION_WARNING_ANGSTROM", 100.0)) < 0:
+        raise ValueError("LSF_EDGE_EXTRAPOLATION_WARNING_ANGSTROM cannot be negative.")
 
 
 def validate_input_paths(cfg: PipelineConfig, path_keys: Iterable[str]) -> dict[str, Path]:

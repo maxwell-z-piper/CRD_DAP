@@ -52,8 +52,16 @@ class ArcLSFResult:
     reduced_chi2_proxy: np.ndarray
     polynomial_coefficients: np.ndarray
     polynomial_order: int
+    # Instrument-good/model-requested wavelength interval, normally WAVGOOD0/1.
+    # This is *not* necessarily the interval directly constrained by accepted
+    # arc-line measurements.
     wavelength_min: float
     wavelength_max: float
+    # Empirical support of the fitted polynomial: min/max accepted line centers
+    # after sigma clipping.  Downstream science code must not silently evaluate
+    # the LSF outside this interval.
+    measurement_wavelength_min: float
+    measurement_wavelength_max: float
     spectral_sampling_angstrom: float
     spatial_fractional_rms: float
     measurement_fractional_rms: float
@@ -62,8 +70,38 @@ class ArcLSFResult:
     n_lines_total: int
     n_lines_used: int
 
-    def evaluate_fwhm(self, wavelength: np.ndarray | float) -> np.ndarray:
-        return np.polyval(self.polynomial_coefficients, np.asarray(wavelength, dtype=float))
+    def evaluate_fwhm(
+        self,
+        wavelength: np.ndarray | float,
+        *,
+        allow_extrapolation: bool = False,
+    ) -> np.ndarray:
+        """Evaluate the wavelength-only LSF model.
+
+        By default values outside the empirically constrained arc-line interval
+        are returned as NaN.  This is intentional: a smooth polynomial can look
+        plausible far outside the available line measurements, but using that
+        extrapolation in stellar-kinematic work would be scientifically unsafe.
+        Set ``allow_extrapolation=True`` only for an explicitly labeled QC plot
+        or sensitivity test.
+        """
+        wave = np.asarray(wavelength, dtype=float)
+        values = np.polyval(self.polynomial_coefficients, wave)
+        if allow_extrapolation:
+            return values
+        supported = (
+            (wave >= self.measurement_wavelength_min)
+            & (wave <= self.measurement_wavelength_max)
+        )
+        return np.where(supported, values, np.nan)
+
+    @property
+    def blue_edge_unconstrained_angstrom(self) -> float:
+        return float(max(0.0, self.measurement_wavelength_min - self.wavelength_min))
+
+    @property
+    def red_edge_unconstrained_angstrom(self) -> float:
+        return float(max(0.0, self.wavelength_max - self.measurement_wavelength_max))
 
 
 @dataclass(frozen=True)
@@ -583,6 +621,8 @@ def measure_arc_lsf(
         polynomial_order=int(polynomial_order),
         wavelength_min=wmin,
         wavelength_max=wmax,
+        measurement_wavelength_min=float(np.nanmin(wave[keep])),
+        measurement_wavelength_max=float(np.nanmax(wave[keep])),
         spectral_sampling_angstrom=float(sampling),
         spatial_fractional_rms=spatial_fractional_rms,
         measurement_fractional_rms=measurement_fractional_rms,
@@ -632,6 +672,10 @@ def save_arc_lsf_result(result: ArcLSFResult, npz_path: str | Path, csv_path: st
         polynomial_order=result.polynomial_order,
         wavelength_min=result.wavelength_min,
         wavelength_max=result.wavelength_max,
+        measurement_wavelength_min=result.measurement_wavelength_min,
+        measurement_wavelength_max=result.measurement_wavelength_max,
+        blue_edge_unconstrained_angstrom=result.blue_edge_unconstrained_angstrom,
+        red_edge_unconstrained_angstrom=result.red_edge_unconstrained_angstrom,
         spectral_sampling_angstrom=result.spectral_sampling_angstrom,
         spatial_fractional_rms=result.spatial_fractional_rms,
         measurement_fractional_rms=result.measurement_fractional_rms,

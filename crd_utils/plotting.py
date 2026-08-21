@@ -119,25 +119,61 @@ def plot_registration(
     reference_label: str = "BL",
     moving_label: str = "RH3",
     residual_shift_arcsec: tuple[float, float] | None = None,
+    cross_correlation_valid: bool = True,
+    status_reason: str | None = None,
+    wavelength_label: str | None = None,
+    reference_contrast_snr: float | None = None,
+    moving_contrast_snr: float | None = None,
 ) -> Path:
-    """Three-panel BL/RH3 WCS registration diagnostic."""
+    """Three-panel BL/RH3 WCS registration diagnostic.
+
+    A failed morphology-contrast check is shown explicitly rather than plotting
+    an unstable normalized-difference image with a misleading numerical shift.
+    """
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5), constrained_layout=True)
     arrays = [reference_image, moving_on_reference, difference]
     titles = [reference_label, f"{moving_label} on {reference_label} WCS", "Normalized difference"]
-    for ax, arr, title in zip(axes, arrays, titles):
+    for i, (ax, arr, title) in enumerate(zip(axes, arrays, titles)):
         finite = np.asarray(arr)[np.isfinite(arr)]
         if finite.size:
             lo, hi = np.nanpercentile(finite, [2, 98])
+            im = ax.imshow(arr, origin="lower", aspect="equal", vmin=lo, vmax=hi)
+            fig.colorbar(im, ax=ax, shrink=0.85)
         else:
-            lo, hi = None, None
-        im = ax.imshow(arr, origin="lower", aspect="equal", vmin=lo, vmax=hi)
-        fig.colorbar(im, ax=ax, shrink=0.85)
+            ax.imshow(np.zeros_like(reference_image, dtype=float), origin="lower", aspect="equal")
+            if i == 2:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "Cross-correlation\ninconclusive",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
         ax.set_title(title)
         ax.set_xlabel("Spatial x pixel")
         ax.set_ylabel("Spatial y pixel")
-    if residual_shift_arcsec is not None:
+
+    subtitle_parts = []
+    if wavelength_label:
+        subtitle_parts.append(wavelength_label)
+    if reference_contrast_snr is not None and moving_contrast_snr is not None:
+        subtitle_parts.append(
+            f"contrast: {reference_label}={reference_contrast_snr:.2f}, "
+            f"{moving_label}={moving_contrast_snr:.2f}"
+        )
+
+    if cross_correlation_valid and residual_shift_arcsec is not None:
         dy, dx = residual_shift_arcsec
-        fig.suptitle(f"Residual cross-correlation shift after WCS reprojection: dx={dx:.3f}\", dy={dy:.3f}\"")
+        title = (
+            f"Residual cross-correlation shift after WCS reprojection: "
+            f"dx={dx:.3f}\", dy={dy:.3f}\""
+        )
+    else:
+        title = status_reason or "Registration cross-correlation inconclusive"
+    if subtitle_parts:
+        title += "\n" + " | ".join(subtitle_parts)
+    fig.suptitle(title)
     return _finish(fig, path)
 
 
@@ -190,11 +226,50 @@ def plot_bad_wavelength_fraction(
 
 
 def plot_lsf(result: ArcLSFResult, path: str | Path, *, title: str) -> Path:
-    """Plot empirical arc-line FWHM measurements and adopted wavelength model."""
+    """Plot empirical arc-line FWHM measurements and supported LSF model.
+
+    The polynomial is drawn only where accepted arc-line measurements directly
+    constrain it.  Instrument-good edge regions outside that interval are
+    shaded as *unconstrained extrapolation* rather than silently extending the
+    fitted curve.
+    """
     fig, ax = plt.subplots(figsize=(9, 5))
-    ax.scatter(result.wavelength, result.fwhm_angstrom, s=20, alpha=0.7, label="Accepted arc-line fits")
-    grid = np.linspace(result.wavelength_min, result.wavelength_max, 500)
-    ax.plot(grid, result.evaluate_fwhm(grid), linewidth=2, label=f"Polynomial order {result.polynomial_order}")
+    ax.scatter(
+        result.wavelength,
+        result.fwhm_angstrom,
+        s=20,
+        alpha=0.7,
+        label="Accepted arc-line fits",
+    )
+    grid = np.linspace(
+        result.measurement_wavelength_min,
+        result.measurement_wavelength_max,
+        500,
+    )
+    ax.plot(
+        grid,
+        result.evaluate_fwhm(grid),
+        linewidth=2,
+        label=f"Polynomial order {result.polynomial_order} (empirically supported)",
+    )
+
+    if result.measurement_wavelength_min > result.wavelength_min:
+        ax.axvspan(
+            result.wavelength_min,
+            result.measurement_wavelength_min,
+            alpha=0.12,
+            label="Instrument-good but no accepted-line support",
+        )
+    if result.measurement_wavelength_max < result.wavelength_max:
+        ax.axvspan(
+            result.measurement_wavelength_max,
+            result.wavelength_max,
+            alpha=0.12,
+        )
+    ax.axvline(result.wavelength_min, linestyle=":", alpha=0.7)
+    ax.axvline(result.wavelength_max, linestyle=":", alpha=0.7)
+
+    ax.set_xlim(result.wavelength_min, result.wavelength_max)
     ax.set_xlabel("Wavelength (Å)")
     ax.set_ylabel("Instrumental FWHM (Å)")
     ax.set_title(title)
@@ -213,6 +288,82 @@ def plot_lsf_spatial_variation(result: ArcLSFResult, path: str | Path, *, title:
     ax.set_xlabel("KCWI slice ID")
     ax.set_ylabel("FWHM residual from wavelength model (%)")
     ax.set_title(title)
+    return _finish(fig, path)
+
+
+def _median_and_interval_by_group(
+    group: np.ndarray,
+    values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return group coordinate, median, and 16/84-percentile residuals."""
+    g = np.asarray(group)
+    v = np.asarray(values, dtype=float)
+    coords = []
+    medians = []
+    low = []
+    high = []
+    for value in np.unique(g):
+        m = (g == value) & np.isfinite(v)
+        if not np.any(m):
+            continue
+        p16, p50, p84 = np.nanpercentile(v[m], [16, 50, 84])
+        coords.append(float(value))
+        medians.append(float(p50))
+        low.append(float(p50 - p16))
+        high.append(float(p84 - p50))
+    return (
+        np.asarray(coords),
+        np.asarray(medians),
+        np.asarray(low),
+        np.asarray(high),
+    )
+
+
+def plot_lsf_spatial_summary(result: ArcLSFResult, path: str | Path, *, title: str) -> Path:
+    """Summarize coherent LSF residuals after averaging over line measurements.
+
+    The existing spatial-variation scatter plot intentionally shows every
+    accepted line fit and therefore mixes measurement scatter with coherent
+    spatial structure.  This companion figure shows group medians and 16--84%
+    intervals, making the much smaller slice/position dependence visible.
+    """
+    model = result.evaluate_fwhm(result.wavelength)
+    frac_percent = 100.0 * (result.fwhm_angstrom - model) / model
+
+    slice_x, slice_med, slice_lo, slice_hi = _median_and_interval_by_group(
+        result.slice_id, frac_percent
+    )
+    pos_x, pos_med, pos_lo, pos_hi = _median_and_interval_by_group(
+        result.position_bin, frac_percent
+    )
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), constrained_layout=True)
+    axes[0].errorbar(
+        slice_x,
+        slice_med,
+        yerr=np.vstack([slice_lo, slice_hi]),
+        fmt="o",
+        capsize=2,
+    )
+    axes[0].axhline(0.0, linestyle="--")
+    axes[0].set_xlabel("KCWI slice ID")
+    axes[0].set_ylabel("Median FWHM residual (%)")
+    axes[0].set_title(f"Slice medians (RMS={100*result.slice_fractional_rms:.2f}%)")
+
+    axes[1].errorbar(
+        pos_x,
+        pos_med,
+        yerr=np.vstack([pos_lo, pos_hi]),
+        fmt="o",
+        capsize=2,
+    )
+    axes[1].axhline(0.0, linestyle="--")
+    axes[1].set_xlabel("Position bin within slice")
+    axes[1].set_ylabel("Median FWHM residual (%)")
+    axes[1].set_title(
+        f"Position-bin medians (RMS={100*result.position_fractional_rms:.2f}%)"
+    )
+    fig.suptitle(title)
     return _finish(fig, path)
 
 
@@ -270,43 +421,4 @@ def plot_spectral_covariance(result: NoiseDiagnosticResult, path: str | Path, *,
     ax.set_xlabel("Spectral lag (pixels)")
     ax.set_ylabel("Median residual correlation coefficient")
     ax.set_title(title)
-    return _finish(fig, path)
-
-
-def plot_effective_exposure(
-    median_exposure: np.ndarray,
-    coverage_fraction: np.ndarray,
-    path: str | Path,
-    *,
-    title: str,
-) -> Path:
-    """Plot median effective exposure and wavelength-coverage fraction.
-
-    This diagnostic is especially important for KcwiKit stacks whose requested
-    output dimensions can intentionally exceed the illuminated IFU footprint.
-    Zero-exposure padding should remain visually obvious and must never be passed
-    to PowerBin as if it were low-S/N science data.
-    """
-    exp = np.asarray(median_exposure, dtype=float)
-    cov = np.asarray(coverage_fraction, dtype=float)
-    if exp.shape != cov.shape or exp.ndim != 2:
-        raise ValueError("median_exposure and coverage_fraction must be matching 2-D arrays")
-
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5), constrained_layout=True)
-
-    finite_positive = exp[np.isfinite(exp) & (exp > 0)]
-    vmax = float(np.nanpercentile(finite_positive, 99)) if finite_positive.size else None
-    im0 = axes[0].imshow(exp, origin="lower", vmin=0, vmax=vmax, aspect="equal")
-    fig.colorbar(im0, ax=axes[0], shrink=0.85, label="Median effective exposure (s)")
-    axes[0].set_title("Effective exposure")
-
-    im1 = axes[1].imshow(cov, origin="lower", vmin=0, vmax=1, aspect="equal")
-    fig.colorbar(im1, ax=axes[1], shrink=0.85, label="Wavelength coverage fraction")
-    axes[1].set_title("Instrument-good wavelength coverage")
-
-    for ax in axes:
-        ax.set_xlabel("Spatial x pixel")
-        ax.set_ylabel("Spatial y pixel")
-
-    fig.suptitle(title)
     return _finish(fig, path)

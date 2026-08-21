@@ -30,7 +30,14 @@ class CenterEstimate:
 
 @dataclass(frozen=True)
 class RegistrationResult:
-    """BL/RH3 registration diagnostic on the BL spatial grid."""
+    """BL/RH3 registration diagnostic on the BL spatial grid.
+
+    ``cross_correlation_valid`` is deliberately explicit.  A numerical
+    cross-correlation shift is only reported when *both* registration images
+    contain enough spatial contrast to make morphology registration meaningful.
+    Otherwise the returned shifts are NaN and Script 1 falls back to the
+    independently measured sky-coordinate center comparison as the relevant QC.
+    """
 
     moving_on_reference: np.ndarray
     difference: np.ndarray
@@ -38,6 +45,10 @@ class RegistrationResult:
     residual_shift_yx_pix: tuple[float, float]
     residual_shift_arcsec: tuple[float, float]
     residual_shift_radius_arcsec: float
+    cross_correlation_valid: bool
+    reference_contrast_snr: float
+    moving_contrast_snr: float
+    status_reason: str
 
 
 def collapsed_continuum(
@@ -223,6 +234,45 @@ def _normalized_for_correlation(image: np.ndarray, mask: np.ndarray) -> np.ndarr
     return out
 
 
+
+
+def registration_contrast_snr(
+    image: np.ndarray,
+    mask: np.ndarray,
+    *,
+    smooth_sigma_pix: float = 1.0,
+) -> float:
+    """Return a robust morphology-contrast statistic for registration QC.
+
+    The statistic is intentionally simple and diagnostic rather than a formal
+    photometric S/N.  After light NaN-aware smoothing, it compares the upper
+    spatial tail of the image to the robust pixel-to-pixel background scale:
+
+    ``contrast_snr = (P99 - median) / (1.4826 * MAD)``.
+
+    A nearly flat collapsed-continuum image can otherwise produce a formally
+    precise but scientifically meaningless cross-correlation shift after robust
+    normalization.  Script 1 therefore requires this contrast statistic to
+    exceed a configurable threshold in *both* arms before trusting the shift.
+    """
+    arr = smooth_image(np.asarray(image, dtype=float), sigma_pix=smooth_sigma_pix)
+    use = np.asarray(mask, dtype=bool) & np.isfinite(arr)
+    if np.sum(use) < 25:
+        return float("nan")
+
+    values = arr[use]
+    med = float(np.nanmedian(values))
+    mad = float(np.nanmedian(np.abs(values - med)))
+    scale = 1.4826 * mad
+    if not np.isfinite(scale) or scale <= 0:
+        scale = float(np.nanstd(values))
+    if not np.isfinite(scale) or scale <= 0:
+        return 0.0
+
+    high = float(np.nanpercentile(values, 99.0))
+    return float(max(0.0, (high - med) / scale))
+
+
 def _parabolic_offset(v_minus: float, v0: float, v_plus: float) -> float:
     """Subpixel peak offset for three equally spaced samples, clipped to ±1."""
     denom = v_minus - 2.0 * v0 + v_plus
@@ -277,28 +327,62 @@ def register_cube_pair(
     moving_wcs: WCS,
     *,
     reference_pixel_scale_arcsec: tuple[float, float],
+    min_contrast_snr: float = 5.0,
+    contrast_smooth_sigma_pix: float = 1.0,
 ) -> RegistrationResult:
-    """Diagnose RH3-to-BL registration without resampling either science cube."""
+    """Diagnose RH3-to-BL registration without resampling either science cube.
+
+    The moving image is sampled onto the reference WCS only for this QC plot.
+    Before cross-correlation, both images must pass a morphology-contrast test.
+    This prevents a nearly featureless continuum image from producing a
+    numerically well-defined but physically meaningless residual shift.
+    """
     projected, overlap = reproject_image_via_wcs(
         moving_image,
         moving_wcs,
         reference_wcs,
         reference_image.shape,
     )
-    dy, dx = residual_registration_shift(reference_image, projected, overlap)
-    scale_x, scale_y = reference_pixel_scale_arcsec
-    dx_arc = dx * scale_x
-    dy_arc = dy * scale_y
 
     ref = np.asarray(reference_image, dtype=float)
-    # Normalize each image by a robust central scale before differencing so the
-    # diagnostic is sensitive primarily to morphology/registration rather than
-    # the very different BL and RH3 passband flux scales.
     use = overlap & np.isfinite(ref) & np.isfinite(projected)
-    ref_n = _normalized_for_correlation(ref, use)
-    mov_n = _normalized_for_correlation(projected, use)
-    diff = np.full_like(ref_n, np.nan)
-    diff[use] = ref_n[use] - mov_n[use]
+    ref_contrast = registration_contrast_snr(
+        ref, use, smooth_sigma_pix=contrast_smooth_sigma_pix
+    )
+    mov_contrast = registration_contrast_snr(
+        projected, use, smooth_sigma_pix=contrast_smooth_sigma_pix
+    )
+
+    contrast_ok = (
+        np.isfinite(ref_contrast)
+        and np.isfinite(mov_contrast)
+        and ref_contrast >= float(min_contrast_snr)
+        and mov_contrast >= float(min_contrast_snr)
+    )
+
+    if contrast_ok:
+        dy, dx = residual_registration_shift(ref, projected, use)
+        scale_x, scale_y = reference_pixel_scale_arcsec
+        dx_arc = dx * scale_x
+        dy_arc = dy * scale_y
+
+        # Normalize each image by a robust scale before differencing so the
+        # display emphasizes morphology rather than passband flux normalization.
+        ref_n = _normalized_for_correlation(ref, use)
+        mov_n = _normalized_for_correlation(projected, use)
+        diff = np.full_like(ref_n, np.nan)
+        diff[use] = ref_n[use] - mov_n[use]
+        status = "cross-correlation valid"
+        valid = True
+    else:
+        dy = dx = dy_arc = dx_arc = float("nan")
+        diff = np.full_like(ref, np.nan, dtype=float)
+        status = (
+            "cross-correlation inconclusive: insufficient morphology contrast "
+            f"(reference={ref_contrast:.3g}, moving={mov_contrast:.3g}, "
+            f"required>={float(min_contrast_snr):.3g})"
+        )
+        valid = False
 
     return RegistrationResult(
         moving_on_reference=projected,
@@ -307,4 +391,8 @@ def register_cube_pair(
         residual_shift_yx_pix=(dy, dx),
         residual_shift_arcsec=(dy_arc, dx_arc),
         residual_shift_radius_arcsec=float(np.hypot(dx_arc, dy_arc)),
+        cross_correlation_valid=valid,
+        reference_contrast_snr=float(ref_contrast),
+        moving_contrast_snr=float(mov_contrast),
+        status_reason=status,
     )
