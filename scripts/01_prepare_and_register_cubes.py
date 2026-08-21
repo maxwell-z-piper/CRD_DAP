@@ -581,6 +581,9 @@ def main() -> int:
             contrast_smooth_sigma_pix=float(
                 getattr(cfg, "REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX", 1.0)
             ),
+            max_residual_shift_arcsec=float(
+                getattr(cfg, "REGISTRATION_MAX_RESIDUAL_SHIFT_ARCSEC", 2.0)
+            ),
         )
         logger.info(
             "Registration morphology contrast: BL=%.3f, RH3=%.3f; valid=%s | %s",
@@ -612,9 +615,11 @@ def main() -> int:
                 quality_flags,
                 "REGISTRATION_INCONCLUSIVE",
                 logger,
-                "Morphology cross-correlation was not trusted because one or both registration "
-                "images lack sufficient contrast. Use the independent center/WCS comparison and "
-                "inspect BL_RH3_registration.png; no numerical residual shift is adopted.",
+                "Morphology cross-correlation was not trusted. This can occur because the "
+                "registration images lack sufficient contrast or because the best correlation "
+                "peak runs to the edge of the allowed local residual-search window. Use the "
+                "independent center/WCS comparison and inspect BL_RH3_registration.png; no "
+                "numerical residual shift is adopted.",
             )
 
         if registration_image_info.get("mode") == "common_wavelength_continuum":
