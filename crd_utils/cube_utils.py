@@ -286,6 +286,8 @@ def residual_registration_shift(
     reference_image: np.ndarray,
     moving_on_reference: np.ndarray,
     overlap: np.ndarray,
+    *,
+    max_shift_pix: tuple[float, float] | None = None,
 ) -> tuple[float, float]:
     """Estimate residual ``(dy, dx)`` shift after WCS reprojection.
 
@@ -293,6 +295,12 @@ def residual_registration_shift(
     three-point parabola provides subpixel refinement near the correlation peak.
     The returned shift is the additional shift that would align the moving image
     to the reference image on the reference grid.
+
+    ``max_shift_pix=(max_dy, max_dx)`` limits the search to a physically
+    plausible residual around the WCS-predicted alignment.  Script 1 is testing
+    *residual* registration, not trying to recover an arbitrarily large blind
+    translation.  This prevents footprint edges or weak continuum structure
+    from winning the correlation at tens of pixels from zero shift.
     """
     ref = np.asarray(reference_image, dtype=float)
     mov = np.asarray(moving_on_reference, dtype=float)
@@ -305,11 +313,28 @@ def residual_registration_shift(
     corr = fftconvolve(a, b[::-1, ::-1], mode="same")
     norm = fftconvolve(weight, weight[::-1, ::-1], mode="same")
     valid = norm > max(9.0, 0.1 * np.nanmax(norm))
+
+    # Restrict the correlation search to a local window around zero residual
+    # shift when requested.  Large offsets should be fixed in the WCS/stacking
+    # stage rather than silently adopted by this diagnostic.
+    cy, cx = np.array(corr.shape) // 2
+    if max_shift_pix is not None:
+        max_dy, max_dx = (float(max_shift_pix[0]), float(max_shift_pix[1]))
+        if max_dy <= 0 or max_dx <= 0:
+            raise ValueError("max_shift_pix values must be positive")
+        yy, xx = np.indices(corr.shape)
+        local = (
+            (np.abs(yy - cy) <= max_dy)
+            & (np.abs(xx - cx) <= max_dx)
+        )
+        valid &= local
+
     corr_norm = np.full_like(corr, -np.inf, dtype=float)
     corr_norm[valid] = corr[valid] / norm[valid]
+    if not np.any(np.isfinite(corr_norm)):
+        raise ValueError("No valid correlation samples inside registration search window")
 
     iy, ix = np.unravel_index(np.nanargmax(corr_norm), corr_norm.shape)
-    cy, cx = np.array(corr_norm.shape) // 2
     dy = float(iy - cy)
     dx = float(ix - cx)
 
@@ -329,6 +354,7 @@ def register_cube_pair(
     reference_pixel_scale_arcsec: tuple[float, float],
     min_contrast_snr: float = 5.0,
     contrast_smooth_sigma_pix: float = 1.0,
+    max_residual_shift_arcsec: float = 2.0,
 ) -> RegistrationResult:
     """Diagnose RH3-to-BL registration without resampling either science cube.
 
@@ -361,10 +387,29 @@ def register_cube_pair(
     )
 
     if contrast_ok:
-        dy, dx = residual_registration_shift(ref, projected, use)
         scale_x, scale_y = reference_pixel_scale_arcsec
-        dx_arc = dx * scale_x
-        dy_arc = dy * scale_y
+        max_arc = float(max_residual_shift_arcsec)
+        if not np.isfinite(max_arc) or max_arc <= 0:
+            raise ValueError("max_residual_shift_arcsec must be positive")
+        max_dy_pix = max_arc / float(scale_y)
+        max_dx_pix = max_arc / float(scale_x)
+
+        dy_candidate, dx_candidate = residual_registration_shift(
+            ref,
+            projected,
+            use,
+            max_shift_pix=(max_dy_pix, max_dx_pix),
+        )
+
+        # A best-fit peak at the edge of the allowed local search window means
+        # the morphology correlation is trying to run away from the WCS solution.
+        # Treat that as inconclusive rather than reporting the boundary as a
+        # measured astrometric shift.
+        boundary_margin_pix = 0.75
+        hit_boundary = (
+            abs(dy_candidate) >= max(0.0, max_dy_pix - boundary_margin_pix)
+            or abs(dx_candidate) >= max(0.0, max_dx_pix - boundary_margin_pix)
+        )
 
         # Normalize each image by a robust scale before differencing so the
         # display emphasizes morphology rather than passband flux normalization.
@@ -372,8 +417,22 @@ def register_cube_pair(
         mov_n = _normalized_for_correlation(projected, use)
         diff = np.full_like(ref_n, np.nan)
         diff[use] = ref_n[use] - mov_n[use]
-        status = "cross-correlation valid"
-        valid = True
+
+        if hit_boundary:
+            dy = dx = dy_arc = dx_arc = float("nan")
+            status = (
+                "cross-correlation inconclusive: best peak reached the local "
+                f"search boundary (max residual {max_arc:.3g} arcsec); "
+                "inspect WCS/centers rather than adopting a large blind shift"
+            )
+            valid = False
+        else:
+            dy = float(dy_candidate)
+            dx = float(dx_candidate)
+            dx_arc = dx * scale_x
+            dy_arc = dy * scale_y
+            status = "cross-correlation valid within local residual-search window"
+            valid = True
     else:
         dy = dx = dy_arc = dx_arc = float("nan")
         diff = np.full_like(ref, np.nan, dtype=float)
