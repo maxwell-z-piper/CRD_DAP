@@ -22,6 +22,6 @@ python -m pytest -q
 
 If the tests pass successfully, you are ready to run the pipeline. Remember to duplicate the target_config_template.py script and populate it with your target's specific information, and to rename it. This is needed to run every step of the pipeline as 
 ```bash
-/cd/to/scripts/
+/cd/to/CRD_DAP/scripts/
 python *specific pipeline script*.py --config */path/to/specific config*.py
 ```
