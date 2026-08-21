@@ -313,6 +313,16 @@ BIN_TRANSFER_MIN_ASSIGNED_FRACTION = 0.95
 # this fraction of that bin's member spaxels have a Script-1 GOODMASK sample.
 BIN_SPECTRUM_MIN_MEMBER_FRACTION = 0.50
 
+# Achieved-S/N QC uses a robust ratio-of-medians estimator rather than the
+# older median(flux/uncertainty).  The latter is retained in the output table
+# for audit/debugging because it can expose tiny-variance pathologies.  A bin
+# with non-positive median continuum has no meaningful positive "achieved S/N",
+# so its production-facing S/N is NaN while its signed diagnostic is preserved.
+BIN_SN_MIN_GOOD_CHANNELS = 10
+BIN_SN_REQUIRE_POSITIVE_CONTINUUM = True
+BIN_SN_EXTREME_ABS_WARNING = 1000.0       # QC warning only; never clips data
+BIN_SN_ESTIMATOR_DISAGREEMENT_FACTOR = 10.0  # compare robust vs legacy estimator
+
 # Flag bins whose measured BL S/N is substantially below the requested target.
 # PowerBin equalizes a continuum proxy, so a modest tolerance is expected.
 BINNING_LOW_SN_WARNING_FRACTION = 0.80
