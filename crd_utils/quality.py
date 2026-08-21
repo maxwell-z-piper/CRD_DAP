@@ -85,6 +85,18 @@ FLAG_DEFINITIONS = {
         "SPATIAL_COVARIANCE_UNCALIBRATED",
         "PowerBin capacities and formal coadded uncertainties currently use diagonal spatial variance because no validated KcwiKit spatial covariance law has been supplied.",
     ),
+    "NONPOSITIVE_BIN_CONTINUUM": QualityFlagDefinition(
+        "NONPOSITIVE_BIN_CONTINUUM",
+        "One or more bin S/N windows have non-positive median continuum, so a positive achieved-S/N value is undefined; signed diagnostics are retained for inspection.",
+    ),
+    "EXTREME_BIN_SN_DIAGNOSTIC": QualityFlagDefinition(
+        "EXTREME_BIN_SN_DIAGNOSTIC",
+        "One or more signed or legacy bin S/N diagnostics exceed the configured extreme-value warning threshold and should be inspected for tiny formal uncertainties or edge/systematic residuals.",
+    ),
+    "BIN_SN_ESTIMATOR_DISAGREEMENT": QualityFlagDefinition(
+        "BIN_SN_ESTIMATOR_DISAGREEMENT",
+        "The robust ratio-of-medians S/N and legacy median(flux/uncertainty) estimator disagree by more than the configured factor for one or more bins.",
+    ),
 }
 
 

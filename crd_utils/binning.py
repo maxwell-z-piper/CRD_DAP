@@ -98,6 +98,30 @@ class CoaddedBinSpectra:
     spatial_scale_reason: str
 
 
+@dataclass(frozen=True)
+class BinSNDiagnostics:
+    """Robust achieved-continuum S/N diagnostics for every spatial bin.
+
+    ``sn`` is the production-facing achieved S/N value.  By default it is only
+    defined when the median continuum signal is positive.  ``signed_sn`` keeps
+    the signed ratio-of-medians for audit/debugging, while
+    ``legacy_median_ratio`` records the older ``median(flux/uncertainty)``
+    estimator.  Keeping both makes numerical pathologies visible without
+    allowing a huge negative value to masquerade as a meaningful achieved S/N.
+    """
+
+    sn: np.ndarray
+    signed_sn: np.ndarray
+    legacy_median_ratio: np.ndarray
+    median_flux: np.ndarray
+    median_uncertainty: np.ndarray
+    min_uncertainty: np.ndarray
+    p05_uncertainty: np.ndarray
+    negative_flux_fraction: np.ndarray
+    n_good_channels: np.ndarray
+    positive_continuum: np.ndarray
+
+
 def observed_range_from_rest(rest_range: tuple[float, float], redshift: float) -> tuple[float, float]:
     """Convert a rest-frame wavelength interval to observed-frame Angstrom."""
     lo, hi = (float(rest_range[0]), float(rest_range[1]))
@@ -680,21 +704,69 @@ def coadd_bin_spectra(
     )
 
 
-def achieved_sn_per_bin(
+def achieved_sn_diagnostics_per_bin(
     spectra: CoaddedBinSpectra,
     wavelength: np.ndarray,
     *,
     rest_range: tuple[float, float],
     redshift: float,
-) -> np.ndarray:
-    """Measure median per-spectral-pixel S/N in the configured science window."""
+    min_good_channels: int = 10,
+    require_positive_continuum: bool = True,
+) -> BinSNDiagnostics:
+    """Measure robust per-bin continuum S/N and retain audit diagnostics.
+
+    Script 2 originally used ``median(flux/uncertainty)``.  That quantity is
+    useful as a signed diagnostic, but it can become numerically enormous if a
+    subset of formal uncertainties is pathologically small.  It can also become
+    strongly negative when a sky-subtracted continuum fluctuates below zero.
+
+    The production-facing estimator is therefore the *ratio of robust
+    locations*
+
+        S/N = median(flux) / median(uncertainty),
+
+    evaluated over the configured science window.  This preserves the intended
+    interpretation as a typical per-spectral-pixel continuum S/N while reducing
+    sensitivity to individual tiny-variance samples.
+
+    If ``require_positive_continuum`` is True, bins with non-positive median
+    continuum are assigned ``NaN`` for ``sn`` rather than a huge negative number.
+    Their signed value and detailed diagnostics are retained in the returned
+    object so the condition is never hidden.  No flux or variance is modified.
+    """
+    min_good_channels = int(min_good_channels)
+    if min_good_channels < 2:
+        raise ValueError("min_good_channels must be at least 2")
+
     obs_lo, obs_hi = observed_range_from_rest(rest_range, redshift)
     wave = np.asarray(wavelength, dtype=float)
     w = (wave >= obs_lo) & (wave <= obs_hi)
+    nbin = int(spectra.flux.shape[0])
+
+    def full(fill=np.nan, dtype=float):
+        return np.full(nbin, fill, dtype=dtype)
+
+    sn = full()
+    signed_sn = full()
+    legacy = full()
+    med_flux = full()
+    med_unc = full()
+    min_unc = full()
+    p05_unc = full()
+    neg_frac = full()
+    n_good = full(0, dtype=np.int32)
+    positive = full(False, dtype=bool)
+
     if not np.any(w):
-        return np.full(spectra.flux.shape[0], np.nan, dtype=float)
-    out = np.full(spectra.flux.shape[0], np.nan, dtype=float)
-    for bid in range(spectra.flux.shape[0]):
+        return BinSNDiagnostics(
+            sn=sn, signed_sn=signed_sn, legacy_median_ratio=legacy,
+            median_flux=med_flux, median_uncertainty=med_unc,
+            min_uncertainty=min_unc, p05_uncertainty=p05_unc,
+            negative_flux_fraction=neg_frac, n_good_channels=n_good,
+            positive_continuum=positive,
+        )
+
+    for bid in range(nbin):
         good = (
             spectra.good[bid]
             & w
@@ -702,11 +774,61 @@ def achieved_sn_per_bin(
             & np.isfinite(spectra.uncertainty[bid])
             & (spectra.uncertainty[bid] > 0)
         )
-        if np.sum(good) < 2:
+        n = int(np.sum(good))
+        n_good[bid] = n
+        if n < min_good_channels:
             continue
-        ratios = spectra.flux[bid, good] / spectra.uncertainty[bid, good]
-        out[bid] = float(np.nanmedian(ratios))
-    return out
+
+        flux = np.asarray(spectra.flux[bid, good], dtype=float)
+        unc = np.asarray(spectra.uncertainty[bid, good], dtype=float)
+        ratios = flux / unc
+
+        mf = float(np.nanmedian(flux))
+        mu = float(np.nanmedian(unc))
+        med_flux[bid] = mf
+        med_unc[bid] = mu
+        min_unc[bid] = float(np.nanmin(unc))
+        p05_unc[bid] = float(np.nanpercentile(unc, 5.0))
+        neg_frac[bid] = float(np.mean(flux < 0.0))
+        legacy[bid] = float(np.nanmedian(ratios))
+
+        if np.isfinite(mf) and np.isfinite(mu) and mu > 0.0:
+            signed_sn[bid] = mf / mu
+            positive[bid] = mf > 0.0
+            if (not require_positive_continuum) or positive[bid]:
+                sn[bid] = signed_sn[bid]
+
+    return BinSNDiagnostics(
+        sn=sn, signed_sn=signed_sn, legacy_median_ratio=legacy,
+        median_flux=med_flux, median_uncertainty=med_unc,
+        min_uncertainty=min_unc, p05_uncertainty=p05_unc,
+        negative_flux_fraction=neg_frac, n_good_channels=n_good,
+        positive_continuum=positive,
+    )
+
+
+def achieved_sn_per_bin(
+    spectra: CoaddedBinSpectra,
+    wavelength: np.ndarray,
+    *,
+    rest_range: tuple[float, float],
+    redshift: float,
+    min_good_channels: int = 10,
+    require_positive_continuum: bool = True,
+) -> np.ndarray:
+    """Return the robust production-facing achieved continuum S/N per bin.
+
+    This compatibility wrapper delegates to
+    :func:`achieved_sn_diagnostics_per_bin`.
+    """
+    return achieved_sn_diagnostics_per_bin(
+        spectra,
+        wavelength,
+        rest_range=rest_range,
+        redshift=redshift,
+        min_good_channels=min_good_channels,
+        require_positive_continuum=require_positive_continuum,
+    ).sn
 
 
 def normalized_flux_weights(

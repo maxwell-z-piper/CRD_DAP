@@ -738,7 +738,7 @@ def plot_bl_rh3_sn_comparison(
     ]
     for ax, image, title in zip(axes, images, ("BL", "RH3 in BL-defined bins")):
         im = ax.imshow(image, origin="lower", aspect="equal", vmin=0.0, vmax=vmax)
-        fig.colorbar(im, ax=ax, shrink=0.85, label="Median continuum S/N per spectral pixel")
+        fig.colorbar(im, ax=ax, shrink=0.85, label="Robust continuum S/N per spectral pixel")
         ax.set_xlabel("BL spatial x pixel")
         ax.set_ylabel("BL spatial y pixel")
         ax.set_title(title)

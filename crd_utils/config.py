@@ -26,6 +26,8 @@ import shutil
 from types import ModuleType
 from typing import Any, Iterable
 
+import numpy as np
+
 
 REQUIRED_CONFIG_KEYS = (
     "TARGET_NAME",
@@ -257,6 +259,17 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
     member = float(getattr(cfg, "BIN_SPECTRUM_MIN_MEMBER_FRACTION", 0.50))
     if not 0.0 < member <= 1.0:
         raise ValueError("BIN_SPECTRUM_MIN_MEMBER_FRACTION must lie in (0, 1].")
+    min_sn_chan = int(getattr(cfg, "BIN_SN_MIN_GOOD_CHANNELS", 10))
+    if min_sn_chan < 2:
+        raise ValueError("BIN_SN_MIN_GOOD_CHANNELS must be at least 2.")
+    if not isinstance(getattr(cfg, "BIN_SN_REQUIRE_POSITIVE_CONTINUUM", True), (bool, np.bool_)):
+        raise ValueError("BIN_SN_REQUIRE_POSITIVE_CONTINUUM must be boolean.")
+    extreme = float(getattr(cfg, "BIN_SN_EXTREME_ABS_WARNING", 1000.0))
+    if not np.isfinite(extreme) or extreme <= 0:
+        raise ValueError("BIN_SN_EXTREME_ABS_WARNING must be finite and positive.")
+    disagree = float(getattr(cfg, "BIN_SN_ESTIMATOR_DISAGREEMENT_FACTOR", 10.0))
+    if not np.isfinite(disagree) or disagree <= 1.0:
+        raise ValueError("BIN_SN_ESTIMATOR_DISAGREEMENT_FACTOR must be > 1.")
     low_sn = float(getattr(cfg, "BINNING_LOW_SN_WARNING_FRACTION", 0.80))
     if not 0.0 < low_sn <= 1.0:
         raise ValueError("BINNING_LOW_SN_WARNING_FRACTION must lie in (0, 1].")
