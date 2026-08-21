@@ -39,9 +39,16 @@ class ConventionCheck:
 
 @dataclass(frozen=True)
 class CalibrationMatch:
-    """Summary of an arc/science configuration match."""
+    """Summary of an arc/science configuration match.
+
+    ``expected_grating`` is the grating requested by the target configuration.
+    It is stored explicitly so the run products retain the distinction between
+    the pipeline arm label (``BL``/``RH3``) and the actual instrument grating
+    used for a particular dataset.
+    """
 
     arm: str
+    expected_grating: str
     science_camera: str
     arc_camera: str
     science_grating: str
@@ -260,17 +267,46 @@ def validate_arc_science_configuration(
     arc_header: fits.Header,
     *,
     arm: str,
+    expected_grating: str | None = None,
     central_wavelength_tolerance_angstrom: float = 0.5,
 ) -> CalibrationMatch:
     """Hard-check that a master arc matches the science instrumental setup.
 
-    This prevents, for example, accidentally supplying an RL master arc as the
-    RH3 LSF calibration merely because both live on the red detector.  Camera,
-    arm-specific grating, IFU slicer, detector binning, and central wavelength
-    must agree whenever those metadata are available.
+    Parameters
+    ----------
+    science_header, arc_header
+        FITS headers for the science cube and candidate master arc.
+    arm
+        Pipeline arm label. ``BL`` selects blue-camera grating metadata and
+        ``RH3`` selects red-camera grating metadata. The arm label intentionally
+        remains stable even when Script 1 is exercised with a different grating.
+    expected_grating
+        Grating required for this run, e.g. ``"BL"``, ``"BM"``, ``"RH3"``, or
+        ``"RL"``. If omitted, the legacy defaults are retained: ``BL`` for the
+        blue arm and ``RH3`` for the red arm.
+    central_wavelength_tolerance_angstrom
+        Maximum allowed science/arc central-wavelength difference.
+
+    Notes
+    -----
+    Making the expected grating configurable does *not* weaken calibration
+    validation. The science grating must match the configured grating, the arc
+    grating must match the configured grating, and the science and arc must
+    still match one another. Camera, IFU slicer, detector binning, and central
+    wavelength are checked as before.
     """
     arm_u = str(arm).strip().upper()
+    if arm_u not in {"BL", "RH3"}:
+        raise ValueError("Calibration matching currently expects arm='BL' or arm='RH3'")
+
     expected_camera = "BLUE" if arm_u == "BL" else "RED"
+
+    if expected_grating is None:
+        expected_grating_u = "BL" if arm_u == "BL" else "RH3"
+    else:
+        expected_grating_u = _clean_header_text(expected_grating)
+        if not expected_grating_u:
+            raise ValueError("expected_grating must be a non-empty grating name")
 
     sci_camera = _clean_header_text(science_header.get("CAMERA", ""))
     arc_camera = _clean_header_text(arc_header.get("CAMERA", ""))
@@ -287,16 +323,17 @@ def validate_arc_science_configuration(
 
     sci_grating = _grating_for_arm(science_header, arm_u)
     arc_grating = _grating_for_arm(arc_header, arm_u)
-    expected_grating = "BL" if arm_u == "BL" else "RH3"
-    if sci_grating and sci_grating != expected_grating:
+    if sci_grating and sci_grating != expected_grating_u:
         raise ValueError(
             f"Configured {arm_u} science cube reports grating {sci_grating!r}, "
-            f"expected {expected_grating!r}. Check the target configuration path."
+            f"but {arm_u}_EXPECTED_GRATING requires {expected_grating_u!r}. "
+            "Check the target configuration path and configured expected grating."
         )
-    if arc_grating and arc_grating != expected_grating:
+    if arc_grating and arc_grating != expected_grating_u:
         raise ValueError(
             f"Configured {arm_u} master arc reports grating {arc_grating!r}, "
-            f"expected {expected_grating!r}. Use the correct grating calibration."
+            f"but {arm_u}_EXPECTED_GRATING requires {expected_grating_u!r}. "
+            "Use the matching grating calibration."
         )
     if sci_grating and arc_grating and sci_grating != arc_grating:
         raise ValueError(
@@ -325,6 +362,7 @@ def validate_arc_science_configuration(
 
     return CalibrationMatch(
         arm=arm_u,
+        expected_grating=expected_grating_u,
         science_camera=sci_camera,
         arc_camera=arc_camera,
         science_grating=sci_grating,

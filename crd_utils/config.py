@@ -167,6 +167,16 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
     stack_dtype = str(getattr(cfg, "STACK_FLOAT_DTYPE", "float32")).lower()
     if stack_dtype not in {"float32", "float64"}:
         raise ValueError("STACK_FLOAT_DTYPE must be 'float32' or 'float64'.")
+
+    # The pipeline stream names are BL/RH3, but Script 1 may be used to prepare
+    # and validate other blue/red grating setups. Keep the historical BL/RH3
+    # expectations as safe defaults while allowing target configs to override
+    # either grating explicitly. The exact name is then cross-checked against
+    # both the science and master-arc FITS headers.
+    for key, default in (("BL_EXPECTED_GRATING", "BL"), ("RH3_EXPECTED_GRATING", "RH3")):
+        grating = str(getattr(cfg, key, default)).strip()
+        if not grating:
+            raise ValueError(f"{key} must be a non-empty grating name.")
     if int(getattr(cfg, "LSF_MODEL_WAVELENGTH_ORDER", 2)) < 0:
         raise ValueError("LSF_MODEL_WAVELENGTH_ORDER cannot be negative.")
     if int(getattr(cfg, "ARC_MIN_GOOD_LINES", 6)) < 3:
