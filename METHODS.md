@@ -251,6 +251,8 @@ The RH3 PSF will also define the default XookSuut-style radial node spacing.
 
 The primary LSF comes from unresolved lines in the required master-arc products.
 
+The expected grating in each pipeline data stream is explicit configuration metadata: `BL_EXPECTED_GRATING` for the blue stream and `RH3_EXPECTED_GRATING` for the red stream. Their production defaults are `BL` and `RH3`, respectively. This configurability is intended to support controlled Script-1 validation on other KCWI/KCRM setups without weakening calibration safeguards. For every run, the science cube and master arc must both report the configured expected grating and must still match one another in camera, slicer/IFU, detector binning, and central wavelength. A noncanonical grating is logged prominently and must not be interpreted as production BL/RH3 science in later grating-specific stages unless those stages have been explicitly adapted.
+
 Aim to estimate
 
 $$
