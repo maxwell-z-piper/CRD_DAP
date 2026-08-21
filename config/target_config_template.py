@@ -269,6 +269,54 @@ APPLY_PRELIMINARY_VARIANCE_RESCALING = False
 
 BL_TARGET_SN = 40.0
 
+# Rest-frame continuum windows used to define the BL binning S/N proxy and to
+# report achieved S/N in the transferred red/RH3 spectra.  Script 2 converts
+# these to observed frame with REDSHIFT and intersects them with Script-1's
+# GOODWAVE mask.  These are S/N-measurement windows, not hard science-fit masks.
+BL_BINNING_REST_RANGE_ANGSTROM = (4800.0, 5400.0)
+RH3_SN_REST_RANGE_ANGSTROM = (8470.0, 8700.0)
+BINNING_MIN_VALID_WINDOW_FRACTION = 0.50
+
+# The PowerBin input domain should represent the useful stellar body rather than
+# every exposed sky pixel in the KcwiKit canvas.  The automatic mode thresholds
+# a spatially smoothed continuum-significance proxy, keeps the connected
+# component nearest the Script-1 galaxy center, dilates it slightly, and then
+# intersects it with Script-1's hard GOODSPAX mask.  Native low-S/N spaxels
+# inside this aperture are retained for PowerBin to combine.
+BINNING_APERTURE_MODE = "auto_connected_sn"  # supported: auto_connected_sn, all_good
+BINNING_APERTURE_SMOOTH_SIGMA_PIX = 2.0
+BINNING_APERTURE_SN_THRESHOLD = 2.0           # DEVELOPMENT DEFAULT; inspect diagnostic
+BINNING_APERTURE_DILATE_PIX = 2
+BINNING_APERTURE_CENTER_MAX_DISTANCE_PIX = 5.0
+BINNING_APERTURE_MIN_PIXELS = 25
+BINNING_APERTURE_MAX_RADIUS_ARCSEC = None      # optional explicit outer limit
+
+# PowerBin is mandatory.  A callable capacity is used so a calibrated
+# non-additive spatial-covariance law can be inserted later.  The current safe
+# baseline does NOT invent such a correction: Script 1 measured spectral
+# correlation, not a validated spatial covariance law for coadded spaxels.
+POWERBIN_SPATIAL_COVARIANCE_MODE = "none"      # supported: none, log10
+POWERBIN_SPATIAL_COVARIANCE_ALPHA = 0.0        # only used for mode="log10"
+POWERBIN_REGUL = True
+POWERBIN_MAXITER = 50
+POWERBIN_VERBOSE = 1
+
+# Transfer the BL-defined membership to the red/RH3 native grid through the two
+# celestial WCS solutions.  The current experiment uses matched spatial
+# sampling; Script 2 fails rather than silently pretending that strongly
+# different pixel scales represent identical physical apertures.
+BIN_TRANSFER_MAX_DISTANCE_ARCSEC = 0.25
+BIN_TRANSFER_MAX_PIXEL_SCALE_FRACTIONAL_DIFFERENCE = 0.05
+BIN_TRANSFER_MIN_ASSIGNED_FRACTION = 0.95
+
+# A wavelength sample in a coadded bin spectrum is retained only when at least
+# this fraction of that bin's member spaxels have a Script-1 GOODMASK sample.
+BIN_SPECTRUM_MIN_MEMBER_FRACTION = 0.50
+
+# Flag bins whose measured BL S/N is substantially below the requested target.
+# PowerBin equalizes a continuum proxy, so a modest tolerance is expected.
+BINNING_LOW_SN_WARNING_FRACTION = 0.80
+
 # Shared upper color limit for BL/RH3 S/N comparison plots. The scale should be
 # derived from the combined distribution from both arms.
 SN_PLOT_UPPER_PERCENTILE = 95.0
