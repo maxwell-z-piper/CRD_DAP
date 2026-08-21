@@ -171,6 +171,98 @@ def _save_exposure_diagnostic(arm: str, cube: io.KCWICube, run, logger) -> None:
     )
 
 
+def _registration_images(
+    bl: io.KCWICube,
+    rh3: io.KCWICube,
+    bl_default_image: np.ndarray,
+    rh3_default_image: np.ndarray,
+    cfg,
+    logger,
+) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+    """Choose scientifically comparable 2-D images for registration QC.
+
+    When the two arms share a sufficiently wide instrument-good wavelength
+    interval, collapse *that same observed-frame interval* in both cubes.  This
+    minimizes color/morphology differences between passbands.  If no useful
+    overlap exists (the normal BL+RH3 production case may have none), retain the
+    full-arm continuum images and rely on the explicit morphology-contrast test
+    before trusting cross-correlation.
+    """
+    use_common = bool(
+        getattr(cfg, "REGISTRATION_USE_COMMON_WAVELENGTH_IF_AVAILABLE", True)
+    )
+    min_width = float(getattr(cfg, "REGISTRATION_MIN_COMMON_RANGE_ANGSTROM", 50.0))
+    min_channels = int(getattr(cfg, "REGISTRATION_MIN_COMMON_CHANNELS", 20))
+
+    bl_good_wave = np.asarray(bl.good_wavelength, dtype=bool)
+    rh3_good_wave = np.asarray(rh3.good_wavelength, dtype=bool)
+    if not np.any(bl_good_wave) or not np.any(rh3_good_wave):
+        return bl_default_image, rh3_default_image, {
+            "mode": "full_arm_continuum",
+            "reason": "one or both arms have no instrument-good wavelengths",
+            "wavelength_min_A": None,
+            "wavelength_max_A": None,
+        }
+
+    overlap_min = max(
+        float(np.nanmin(bl.wavelength[bl_good_wave])),
+        float(np.nanmin(rh3.wavelength[rh3_good_wave])),
+    )
+    overlap_max = min(
+        float(np.nanmax(bl.wavelength[bl_good_wave])),
+        float(np.nanmax(rh3.wavelength[rh3_good_wave])),
+    )
+    width = overlap_max - overlap_min
+    bl_sel = bl_good_wave & (bl.wavelength >= overlap_min) & (bl.wavelength <= overlap_max)
+    rh3_sel = rh3_good_wave & (rh3.wavelength >= overlap_min) & (rh3.wavelength <= overlap_max)
+
+    enough = (
+        use_common
+        and np.isfinite(width)
+        and width >= min_width
+        and int(np.sum(bl_sel)) >= min_channels
+        and int(np.sum(rh3_sel)) >= min_channels
+    )
+    if enough:
+        bl_image = cube_utils.collapsed_continuum(
+            bl.flux[..., bl_sel], bl.good[..., bl_sel], statistic="median"
+        )
+        rh3_image = cube_utils.collapsed_continuum(
+            rh3.flux[..., rh3_sel], rh3.good[..., rh3_sel], statistic="median"
+        )
+        logger.info(
+            "Registration will use common instrument-good wavelength interval "
+            "%.2f--%.2f A (BL channels=%d, RH3 channels=%d)",
+            overlap_min,
+            overlap_max,
+            int(np.sum(bl_sel)),
+            int(np.sum(rh3_sel)),
+        )
+        return bl_image, rh3_image, {
+            "mode": "common_wavelength_continuum",
+            "reason": "sufficient shared instrument-good wavelength coverage",
+            "wavelength_min_A": overlap_min,
+            "wavelength_max_A": overlap_max,
+            "BL_channels": int(np.sum(bl_sel)),
+            "RH3_channels": int(np.sum(rh3_sel)),
+        }
+
+    reason = (
+        f"common interval width={width:.2f} A, BL channels={int(np.sum(bl_sel))}, "
+        f"RH3 channels={int(np.sum(rh3_sel))}; requirements are width>={min_width:.2f} A "
+        f"and >= {min_channels} channels per arm"
+    )
+    logger.info("Registration will use full-arm continuum images: %s", reason)
+    return bl_default_image, rh3_default_image, {
+        "mode": "full_arm_continuum",
+        "reason": reason,
+        "wavelength_min_A": overlap_min if overlap_max > overlap_min else None,
+        "wavelength_max_A": overlap_max if overlap_max > overlap_min else None,
+        "BL_channels": int(np.sum(bl_sel)),
+        "RH3_channels": int(np.sum(rh3_sel)),
+    }
+
+
 def _run_lsf(
     arm: str,
     cube: io.KCWICube,
@@ -267,18 +359,33 @@ def _run_lsf(
     plotting.plot_lsf_spatial_variation(
         result,
         run.figures_dir / f"{prefix}_LSF_spatial_variation.png",
-        title=f"{prefix} LSF spatial/slice variation",
+        title=f"{prefix} LSF spatial/slice variation: individual line fits",
+    )
+    plotting.plot_lsf_spatial_summary(
+        result,
+        run.figures_dir / f"{prefix}_LSF_spatial_summary.png",
+        title=f"{prefix} coherent LSF spatial summary",
     )
 
     logger.info(
         "%s LSF: %d accepted line measurements (%d initially fit); "
-        "wavelength %.1f--%.1f A; median FWHM %.4f A",
+        "instrument-good/model domain %.1f--%.1f A; empirical accepted-line "
+        "support %.1f--%.1f A; median FWHM %.4f A",
         arm,
         result.n_lines_used,
         result.n_lines_total,
         result.wavelength_min,
         result.wavelength_max,
+        result.measurement_wavelength_min,
+        result.measurement_wavelength_max,
         float(np.nanmedian(result.fwhm_angstrom)),
+    )
+    logger.info(
+        "%s LSF unconstrained instrument-good edge widths: blue=%.1f A, red=%.1f A. "
+        "The saved LSF evaluator returns NaN outside the empirical accepted-line interval by default.",
+        arm,
+        result.blue_edge_unconstrained_angstrom,
+        result.red_edge_unconstrained_angstrom,
     )
     logger.info(
         "%s LSF fractional scatter: raw line-to-line RMS=%.4f; "
@@ -460,38 +567,75 @@ def main() -> int:
         #    resampled here; Script 2 will use the saved physical coordinates.
         # ------------------------------------------------------------------
         crd.log_section(logger, "3. BL/RH3 WCS registration")
+        bl_registration_image, rh3_registration_image, registration_image_info = _registration_images(
+            bl, rh3, bl_image, rh3_image, cfg, logger
+        )
         bl_scale = bl.pixel_scales_arcsec()
         registration = cube_utils.register_cube_pair(
-            bl_image,
+            bl_registration_image,
             bl.celestial_wcs,
-            rh3_image,
+            rh3_registration_image,
             rh3.celestial_wcs,
             reference_pixel_scale_arcsec=bl_scale,
+            min_contrast_snr=float(getattr(cfg, "REGISTRATION_MIN_CONTRAST_SNR", 5.0)),
+            contrast_smooth_sigma_pix=float(
+                getattr(cfg, "REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX", 1.0)
+            ),
         )
         logger.info(
-            "Residual RH3->BL shift after WCS reprojection: dy=%.4f pix, dx=%.4f pix; "
-            "dy=%.4f arcsec, dx=%.4f arcsec; radius=%.4f arcsec",
-            registration.residual_shift_yx_pix[0],
-            registration.residual_shift_yx_pix[1],
-            registration.residual_shift_arcsec[0],
-            registration.residual_shift_arcsec[1],
-            registration.residual_shift_radius_arcsec,
+            "Registration morphology contrast: BL=%.3f, RH3=%.3f; valid=%s | %s",
+            registration.reference_contrast_snr,
+            registration.moving_contrast_snr,
+            registration.cross_correlation_valid,
+            registration.status_reason,
         )
-        if registration.residual_shift_radius_arcsec > float(cfg.REGISTRATION_WARNING_ARCSEC):
+        if registration.cross_correlation_valid:
+            logger.info(
+                "Residual RH3->BL shift after WCS reprojection: dy=%.4f pix, dx=%.4f pix; "
+                "dy=%.4f arcsec, dx=%.4f arcsec; radius=%.4f arcsec",
+                registration.residual_shift_yx_pix[0],
+                registration.residual_shift_yx_pix[1],
+                registration.residual_shift_arcsec[0],
+                registration.residual_shift_arcsec[1],
+                registration.residual_shift_radius_arcsec,
+            )
+            if registration.residual_shift_radius_arcsec > float(cfg.REGISTRATION_WARNING_ARCSEC):
+                _quality_flag(
+                    quality_flags,
+                    "REGISTRATION_OFFSET_WARNING",
+                    logger,
+                    "Residual morphology shift exceeds configured registration tolerance; "
+                    "inspect BL_RH3_registration.png before Script 2.",
+                )
+        else:
             _quality_flag(
                 quality_flags,
-                "REGISTRATION_OFFSET_WARNING",
+                "REGISTRATION_INCONCLUSIVE",
                 logger,
-                "Residual morphology shift exceeds configured registration tolerance; "
-                "inspect BL_RH3_registration.png before Script 2.",
+                "Morphology cross-correlation was not trusted because one or both registration "
+                "images lack sufficient contrast. Use the independent center/WCS comparison and "
+                "inspect BL_RH3_registration.png; no numerical residual shift is adopted.",
             )
 
+        if registration_image_info.get("mode") == "common_wavelength_continuum":
+            wave_label = (
+                f"common observed wavelength "
+                f"{registration_image_info['wavelength_min_A']:.1f}--"
+                f"{registration_image_info['wavelength_max_A']:.1f} A"
+            )
+        else:
+            wave_label = "full-arm continuum images"
         plotting.plot_registration(
-            bl_image,
+            bl_registration_image,
             registration.moving_on_reference,
             registration.difference,
             run.figures_dir / "BL_RH3_registration.png",
             residual_shift_arcsec=registration.residual_shift_arcsec,
+            cross_correlation_valid=registration.cross_correlation_valid,
+            status_reason=registration.status_reason,
+            wavelength_label=wave_label,
+            reference_contrast_snr=registration.reference_contrast_snr,
+            moving_contrast_snr=registration.moving_contrast_snr,
         )
 
         # The common coordinate origin is bookkeeping only; Script 4 later fits
@@ -541,6 +685,11 @@ def main() -> int:
                 "residual_shift_dy_arcsec": registration.residual_shift_arcsec[0],
                 "residual_shift_dx_arcsec": registration.residual_shift_arcsec[1],
                 "residual_shift_radius_arcsec": registration.residual_shift_radius_arcsec,
+                "cross_correlation_valid": registration.cross_correlation_valid,
+                "status_reason": registration.status_reason,
+                "BL_registration_contrast_snr": registration.reference_contrast_snr,
+                "RH3_registration_contrast_snr": registration.moving_contrast_snr,
+                "registration_image": registration_image_info,
                 "overlap_fraction_of_BL_grid": float(np.mean(registration.overlap)),
                 "science_cubes_resampled": False,
             },
@@ -626,6 +775,23 @@ def main() -> int:
                     f"{arm} LSF fractional spatial RMS={result.spatial_fractional_rms:.3f} exceeds "
                     f"{float(cfg.LSF_SPATIAL_VARIATION_WARNING_FRACTION):.3f}.",
                 )
+            edge_limit = float(
+                getattr(cfg, "LSF_EDGE_EXTRAPOLATION_WARNING_ANGSTROM", 100.0)
+            )
+            if max(
+                result.blue_edge_unconstrained_angstrom,
+                result.red_edge_unconstrained_angstrom,
+            ) > edge_limit:
+                _quality_flag(
+                    quality_flags,
+                    "LSF_EMPIRICAL_COVERAGE_GAP",
+                    logger,
+                    f"{arm} has instrument-good wavelength coverage outside the accepted arc-line "
+                    f"support by {result.blue_edge_unconstrained_angstrom:.1f} A on the blue edge "
+                    f"and {result.red_edge_unconstrained_angstrom:.1f} A on the red edge. "
+                    "The LSF evaluator returns NaN in unsupported regions by default; later fitting "
+                    "must mask them or supply an independently validated LSF model.",
+                )
 
         io.write_json(
             {
@@ -633,6 +799,12 @@ def main() -> int:
                     "master_arc": str(Path(cfg.BL_MASTER_ARC).expanduser().resolve()),
                     "sidecars": {k: str(v) for k, v in bl_sidecars.items()},
                     "n_lines_used": bl_lsf.n_lines_used,
+                    "instrument_good_wavelength_min_A": bl_lsf.wavelength_min,
+                    "instrument_good_wavelength_max_A": bl_lsf.wavelength_max,
+                    "empirical_measurement_wavelength_min_A": bl_lsf.measurement_wavelength_min,
+                    "empirical_measurement_wavelength_max_A": bl_lsf.measurement_wavelength_max,
+                    "blue_edge_unconstrained_A": bl_lsf.blue_edge_unconstrained_angstrom,
+                    "red_edge_unconstrained_A": bl_lsf.red_edge_unconstrained_angstrom,
                     "median_fwhm_A": float(np.nanmedian(bl_lsf.fwhm_angstrom)),
                     "measurement_fractional_rms": bl_lsf.measurement_fractional_rms,
                     "slice_fractional_rms": bl_lsf.slice_fractional_rms,
@@ -644,6 +816,12 @@ def main() -> int:
                     "master_arc": str(Path(cfg.RH3_MASTER_ARC).expanduser().resolve()),
                     "sidecars": {k: str(v) for k, v in rh3_sidecars.items()},
                     "n_lines_used": rh3_lsf.n_lines_used,
+                    "instrument_good_wavelength_min_A": rh3_lsf.wavelength_min,
+                    "instrument_good_wavelength_max_A": rh3_lsf.wavelength_max,
+                    "empirical_measurement_wavelength_min_A": rh3_lsf.measurement_wavelength_min,
+                    "empirical_measurement_wavelength_max_A": rh3_lsf.measurement_wavelength_max,
+                    "blue_edge_unconstrained_A": rh3_lsf.blue_edge_unconstrained_angstrom,
+                    "red_edge_unconstrained_A": rh3_lsf.red_edge_unconstrained_angstrom,
                     "median_fwhm_A": float(np.nanmedian(rh3_lsf.fwhm_angstrom)),
                     "measurement_fractional_rms": rh3_lsf.measurement_fractional_rms,
                     "slice_fractional_rms": rh3_lsf.slice_fractional_rms,
@@ -729,11 +907,19 @@ def main() -> int:
             "quality_flags": quality_flags,
             "common_center_ra_deg": float(common_center.ra.deg),
             "common_center_dec_deg": float(common_center.dec.deg),
+            "registration_cross_correlation_valid": registration.cross_correlation_valid,
             "registration_residual_arcsec": registration.residual_shift_radius_arcsec,
+            "registration_image_mode": registration_image_info.get("mode"),
             "BL_PSF_FWHM_arcsec": bl_psf.fwhm_arcsec,
             "RH3_PSF_FWHM_arcsec": rh3_psf.fwhm_arcsec,
             "BL_LSF_median_FWHM_A": float(np.nanmedian(bl_lsf.fwhm_angstrom)),
             "RH3_LSF_median_FWHM_A": float(np.nanmedian(rh3_lsf.fwhm_angstrom)),
+            "BL_LSF_empirical_range_A": [
+                bl_lsf.measurement_wavelength_min, bl_lsf.measurement_wavelength_max
+            ],
+            "RH3_LSF_empirical_range_A": [
+                rh3_lsf.measurement_wavelength_min, rh3_lsf.measurement_wavelength_max
+            ],
         }
         io.write_json(manifest, run.metadata_dir / "script01_manifest.json")
 
