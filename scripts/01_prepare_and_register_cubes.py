@@ -635,6 +635,7 @@ def main() -> int:
             registration.moving_on_reference,
             registration.difference,
             run.figures_dir / "BL_RH3_registration.png",
+            overlap=registration.overlap,
             residual_shift_arcsec=registration.residual_shift_arcsec,
             cross_correlation_valid=registration.cross_correlation_valid,
             status_reason=registration.status_reason,
