@@ -110,6 +110,42 @@ def plot_center_comparison(
     ax.legend(loc="best")
     return _finish(fig, path)
 
+
+def _registration_panel_limits(
+    image: np.ndarray,
+    mask: np.ndarray,
+    *,
+    lower_percentile: float = 5.0,
+    upper_percentile: float = 99.5,
+) -> tuple[float | None, float | None]:
+    """Return robust display limits for one registration-image panel.
+
+    Registration images can contain a small number of very large edge values
+    from masked/reprojected IFU boundaries.  Those samples are important to the
+    data-quality bookkeeping, but they should not control the color stretch of
+    a morphology-comparison figure.  Limits are therefore measured only from
+    the *common valid footprint* and use deliberately robust percentiles.
+
+    This helper affects visualization only.  It does not change the images,
+    masks, WCS, or cross-correlation calculation used for registration QC.
+    """
+    arr = np.asarray(image, dtype=float)
+    use = np.asarray(mask, dtype=bool) & np.isfinite(arr)
+    values = arr[use]
+    if values.size == 0:
+        return None, None
+
+    lo, hi = np.nanpercentile(values, [lower_percentile, upper_percentile])
+    if not np.isfinite(lo) or not np.isfinite(hi):
+        return None, None
+    if hi <= lo:
+        lo = float(np.nanmin(values))
+        hi = float(np.nanmax(values))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return None, None
+    return float(lo), float(hi)
+
+
 def plot_registration(
     reference_image: np.ndarray,
     moving_on_reference: np.ndarray,
@@ -118,6 +154,7 @@ def plot_registration(
     *,
     reference_label: str = "BL",
     moving_label: str = "RH3",
+    overlap: np.ndarray | None = None,
     residual_shift_arcsec: tuple[float, float] | None = None,
     cross_correlation_valid: bool = True,
     status_reason: str | None = None,
@@ -125,34 +162,114 @@ def plot_registration(
     reference_contrast_snr: float | None = None,
     moving_contrast_snr: float | None = None,
 ) -> Path:
-    """Three-panel BL/RH3 WCS registration diagnostic.
+    """Three-panel BL/RH3 WCS-registration diagnostic.
 
-    A failed morphology-contrast check is shown explicitly rather than plotting
-    an unstable normalized-difference image with a misleading numerical shift.
+    The first two panels are intentionally displayed only over the common valid
+    footprint and use robust stretches measured from that same footprint.  This
+    keeps thin IFU/reprojection edge artifacts from dominating the color scale
+    and hiding the galaxy morphology that the diagnostic is meant to compare.
+
+    The third panel is conditional:
+
+    * when morphology cross-correlation is valid, show the normalized morphology
+      difference with a symmetric zero-centered stretch;
+    * when cross-correlation is inconclusive, do **not** show a numerically
+      unstable residual image.  Instead show the common valid footprint and an
+      explicit annotation that no morphology residual/shift was adopted.
+
+    These choices affect the diagnostic visualization only.  They do not alter
+    the science cubes or registration decision itself.
     """
+    reference = np.asarray(reference_image, dtype=float)
+    moving = np.asarray(moving_on_reference, dtype=float)
+    diff = np.asarray(difference, dtype=float)
+
+    if reference.shape != moving.shape:
+        raise ValueError("reference_image and moving_on_reference must have the same shape")
+
+    if overlap is None:
+        common = np.isfinite(reference) & np.isfinite(moving)
+    else:
+        common = np.asarray(overlap, dtype=bool)
+        if common.shape != reference.shape:
+            raise ValueError("overlap must match the registration image shape")
+        common &= np.isfinite(reference) & np.isfinite(moving)
+
+    # Display the two morphology panels on exactly the same spatial support.
+    # Outside the common valid footprint there is nothing meaningful to compare.
+    reference_display = np.where(common, reference, np.nan)
+    moving_display = np.where(common, moving, np.nan)
+
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5), constrained_layout=True)
-    arrays = [reference_image, moving_on_reference, difference]
-    titles = [reference_label, f"{moving_label} on {reference_label} WCS", "Normalized difference"]
-    for i, (ax, arr, title) in enumerate(zip(axes, arrays, titles)):
-        finite = np.asarray(arr)[np.isfinite(arr)]
-        if finite.size:
-            lo, hi = np.nanpercentile(finite, [2, 98])
-            im = ax.imshow(arr, origin="lower", aspect="equal", vmin=lo, vmax=hi)
-            fig.colorbar(im, ax=ax, shrink=0.85)
-        else:
-            ax.imshow(np.zeros_like(reference_image, dtype=float), origin="lower", aspect="equal")
-            if i == 2:
-                ax.text(
-                    0.5,
-                    0.5,
-                    "Cross-correlation\ninconclusive",
-                    ha="center",
-                    va="center",
-                    transform=ax.transAxes,
-                )
+
+    for ax, arr, title in (
+        (axes[0], reference_display, f"{reference_label} (common valid footprint)"),
+        (axes[1], moving_display, f"{moving_label} on {reference_label} WCS"),
+    ):
+        vmin, vmax = _registration_panel_limits(arr, common)
+        im = ax.imshow(
+            arr,
+            origin="lower",
+            aspect="equal",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        fig.colorbar(im, ax=ax, shrink=0.85)
         ax.set_title(title)
         ax.set_xlabel("Spatial x pixel")
         ax.set_ylabel("Spatial y pixel")
+
+    if cross_correlation_valid:
+        # Only a trusted registration gets a morphology-residual panel.  Use a
+        # symmetric color range around zero so positive/negative residuals have
+        # equal visual weight and a single outlier cannot set the entire scale.
+        diff_display = np.where(common & np.isfinite(diff), diff, np.nan)
+        finite = diff_display[np.isfinite(diff_display)]
+        if finite.size:
+            vmax = float(np.nanpercentile(np.abs(finite), 98.0))
+            if not np.isfinite(vmax) or vmax <= 0:
+                vmax = None
+                vmin = None
+            else:
+                vmin = -vmax
+        else:
+            vmin = vmax = None
+
+        im = axes[2].imshow(
+            diff_display,
+            origin="lower",
+            aspect="equal",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        fig.colorbar(im, ax=axes[2], shrink=0.85, label="Normalized morphology residual")
+        axes[2].set_title("Normalized morphology difference")
+    else:
+        # A failed/inconclusive registration should never produce a dramatic
+        # residual plot.  Such a plot has no accepted astrometric interpretation
+        # and can become pathological when one arm has near-zero continuum.
+        footprint = common.astype(float)
+        im = axes[2].imshow(
+            footprint,
+            origin="lower",
+            aspect="equal",
+            vmin=0.0,
+            vmax=1.0,
+        )
+        fig.colorbar(im, ax=axes[2], shrink=0.85, label="Common valid footprint (0/1)")
+        axes[2].set_title("Registration inconclusive")
+        axes[2].text(
+            0.5,
+            0.5,
+            "No morphology residual shown\nNo numerical shift adopted",
+            ha="center",
+            va="center",
+            transform=axes[2].transAxes,
+            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+        )
+
+    axes[2].set_xlabel("Spatial x pixel")
+    axes[2].set_ylabel("Spatial y pixel")
 
     subtitle_parts = []
     if wavelength_label:
@@ -166,7 +283,7 @@ def plot_registration(
     if cross_correlation_valid and residual_shift_arcsec is not None:
         dy, dx = residual_shift_arcsec
         title = (
-            f"Residual cross-correlation shift after WCS reprojection: "
+            "Residual cross-correlation shift after WCS reprojection: "
             f"dx={dx:.3f}\", dy={dy:.3f}\""
         )
     else:
@@ -175,7 +292,6 @@ def plot_registration(
         title += "\n" + " | ".join(subtitle_parts)
     fig.suptitle(title)
     return _finish(fig, path)
-
 
 def plot_valid_spaxels(
     good_spaxel: np.ndarray,
