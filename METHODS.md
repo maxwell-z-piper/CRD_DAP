@@ -237,6 +237,8 @@ When the two arms share a sufficiently wide instrument-good observed-frame wavel
 
 A numerical morphology cross-correlation shift is trusted only when both registration images contain sufficient spatial contrast. Script 1 records a robust contrast statistic for each image and returns the cross-correlation as **inconclusive** rather than forcing a shift when either image is nearly featureless. In that case, the independent sky-coordinate peak/centroid comparison remains the relevant astrometric QC and no spurious residual shift is adopted.
 
+Because the cubes have already been placed on celestial WCS, this step measures only a **local residual** registration. The morphology cross-correlation is therefore restricted to a configurable maximum residual-search radius around zero shift. A correlation peak that runs to this boundary is classified as inconclusive rather than being reported as a large blind translation; a genuinely large astrometric disagreement should be repaired in the stacking/WCS stage.
+
 The science cubes themselves are not resampled in Script 1. The output must allow Script 2 to apply one physical BL-defined PowerBin membership to the RH3 cube using saved sky/tangent-plane coordinates.
 
 ## 4.9 PSF characterization

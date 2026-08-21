@@ -128,6 +128,8 @@ When a sufficiently wide common instrument-good wavelength interval exists, both
 
 Either (1) both images have sufficient contrast and the residual morphology shift is small relative to the delivered PSF / registration requirement, or (2) morphology cross-correlation is explicitly declared inconclusive while the independent WCS peak/centroid comparison remains mutually consistent. A low-contrast image is **not** evidence for a real astrometric offset.
 
+The cross-correlation is also restricted to a configurable local residual-search radius around the WCS-predicted alignment. If the best peak reaches that boundary, the diagnostic is **inconclusive** rather than adopting the boundary value as an astrometric measurement. This guards against IFU-footprint edges or weak passband structure producing a spurious large shift.
+
 ### Warning signs
 
 - coherent dipole residual in a valid normalized-difference image;
