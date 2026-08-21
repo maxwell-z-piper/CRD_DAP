@@ -4,11 +4,20 @@ This module deliberately centralizes all assumptions about the KCWI DRP FITS
 layout.  Downstream science code should work with :class:`KCWICube` rather than
 repeating extension names, FITS-axis conventions, or mask semantics.
 
-The current implementation targets KCWI DRP 1.2-style cube products, whose
-science image is stored in ``PRIMARY`` and which may contain ``UNCERT``,
-``MASK``, ``FLAGS``, and ``NOSKYSUB`` extensions.  ``UNCERT`` is treated as a
-1-sigma standard-deviation image, matching the DRP's use of
-``StdDevUncertainty``.
+The production implementation supports two science-input layouts:
+
+1. a KCWI DRP multi-extension cube whose science image is stored in ``PRIMARY``
+   and which contains ``UNCERT`` plus optional ``MASK``, ``FLAGS``, and
+   ``NOSKYSUB`` extensions; and
+2. a KcwiKit post-DRP stack represented by four matched files: ``*_icubes``
+   (flux), ``*_vcubes`` (variance), ``*_mcubes`` (final binary stack mask), and
+   ``*_ecubes`` (effective exposure time).
+
+For KcwiKit stacks the final ``mcubes`` product is treated as a binary validity /
+coverage mask: zero means that at least one unmasked input exposure contributed,
+and non-zero means no valid contribution.  Original KCWI DRP bit-level FLAGS are
+used by KcwiKit while stacking but are not recoverable from the final binary
+stack mask, so CRD_DAP never pretends otherwise.
 
 Internally CRD_DAP uses array order ``(y, x, wavelength)``.  The original FITS
 axis order is retained in the object so that Script 1 can write a prepared FITS
@@ -87,8 +96,9 @@ class KCWICube:
     flux: np.ndarray
     uncertainty: np.ndarray
     variance: np.ndarray
+    exposure: np.ndarray | None
     drp_mask: np.ndarray
-    flags: np.ndarray
+    flags: np.ndarray | None
     noskysub: np.ndarray | None
     wavelength: np.ndarray
     good: np.ndarray
@@ -101,6 +111,9 @@ class KCWICube:
     original_spectral_axis: int
     original_shape: tuple[int, ...]
     celestial_wcs: WCS
+    input_format: str = "drp"
+    source_paths: dict[str, Path] | None = None
+    coverage_fraction_spaxel: np.ndarray | None = None
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -277,46 +290,53 @@ def build_quality_masks(
     flags: np.ndarray | None,
     wavelength: np.ndarray,
     *,
+    exposure: np.ndarray | None = None,
     wavegood0: float | None,
     wavegood1: float | None,
     reject_any_nonzero_flag: bool,
     min_good_wavelength_fraction: float,
     bad_channel_fraction_threshold: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Construct Script-1 hard-good masks and QC fractions.
+
+    A subtle but important point for post-stacking cubes is that the requested
+    KcwiKit output grid can be larger than the actually exposed IFU footprint.
+    Those padded pixels must *not* count as bad spatial samples when deciding
+    whether an entire wavelength channel is globally problematic.  Otherwise a
+    deliberately generous output canvas could make every wavelength appear
+    mostly bad.
+
+    ``exposure`` therefore serves two roles when available:
+
+    * a sample is geometrically covered only when its effective exposure is
+      finite and strictly positive;
+    * the global bad-channel fraction is evaluated only over the core spatial
+      footprint that has coverage across the configured fraction of the
+      instrument-good wavelength range.
 
     Returns
     -------
     good
         Final 3-D hard-good mask.
     base_good
-        3-D mask before global channel and spatial-spaxel rejection.
+        3-D sample mask before global channel and spatial-spaxel rejection.
     good_wavelength
         One-dimensional instrument/global channel mask.
     good_spaxel
         Two-dimensional spatial mask.
     bad_fraction_wavelength
-        Fraction of spatial samples rejected at each wavelength before the
-        global channel cut.
+        Fraction of covered/core spatial samples rejected at each wavelength.
+    good_fraction_spaxel
+        Fraction of instrument-good wavelengths that are fully usable per
+        spatial element.
+    coverage_fraction_spaxel
+        Fraction of instrument-good wavelengths with positive geometric
+        exposure/coverage per spatial element.
     """
-    f = np.asarray(flux, dtype=float)
-    s = np.asarray(uncertainty, dtype=float)
+    f = np.asarray(flux)
+    s = np.asarray(uncertainty)
     if f.shape != s.shape or f.ndim != 3:
         raise ValueError("flux and uncertainty must be matching 3-D standardized cubes")
-
-    base_good = np.isfinite(f) & np.isfinite(s) & (s > 0)
-
-    if drp_mask is not None:
-        m = np.asarray(drp_mask)
-        if m.shape != f.shape:
-            raise ValueError("DRP mask shape does not match flux cube")
-        base_good &= ~(m.astype(bool))
-
-    if flags is not None and reject_any_nonzero_flag:
-        flg = np.asarray(flags)
-        if flg.shape != f.shape:
-            raise ValueError("FLAGS shape does not match flux cube")
-        base_good &= flg == 0
 
     wave = np.asarray(wavelength, dtype=float)
     if wave.ndim != 1 or wave.size != f.shape[-1]:
@@ -327,25 +347,306 @@ def build_quality_masks(
         instrument_good &= wave >= float(wavegood0)
     if wavegood1 is not None and np.isfinite(wavegood1):
         instrument_good &= wave <= float(wavegood1)
-
-    # Bad-channel fraction is measured across all spatial elements using only
-    # the sample-level data-quality mask.  Channels outside WAVGOOD are forced
-    # to bad separately and therefore need not influence this diagnostic.
-    n_spatial = f.shape[0] * f.shape[1]
-    bad_fraction_wavelength = 1.0 - np.sum(base_good, axis=(0, 1)) / float(n_spatial)
-    global_channel_good = bad_fraction_wavelength <= float(bad_channel_fraction_threshold)
-    good_wavelength = instrument_good & global_channel_good
-
     if not np.any(instrument_good):
         raise ValueError("No wavelength samples survive WAVGOOD/instrument-good constraints")
 
+    # Geometric coverage is explicit for KcwiKit stacks.  For a native DRP cube
+    # without an exposure cube, finite flux/noise samples are the best available
+    # coverage proxy; quality masks are still applied separately below.
+    if exposure is not None:
+        exp = np.asarray(exposure)
+        if exp.shape != f.shape:
+            raise ValueError("Exposure cube shape does not match flux cube")
+        coverage_sample = np.isfinite(exp) & (exp > 0)
+    else:
+        coverage_sample = np.isfinite(f) & np.isfinite(s) & (s > 0)
+
+    base_good = coverage_sample & np.isfinite(f) & np.isfinite(s) & (s > 0)
+
+    if drp_mask is not None:
+        m = np.asarray(drp_mask)
+        if m.shape != f.shape:
+            raise ValueError("Mask shape does not match flux cube")
+        base_good &= ~(m.astype(bool))
+
+    if flags is not None and reject_any_nonzero_flag:
+        flg = np.asarray(flags)
+        if flg.shape != f.shape:
+            raise ValueError("FLAGS shape does not match flux cube")
+        base_good &= flg == 0
+
     denom = int(np.sum(instrument_good))
-    good_fraction_spaxel = np.sum(base_good[..., instrument_good], axis=-1) / float(denom)
+    coverage_fraction_spaxel = (
+        np.sum(coverage_sample[..., instrument_good], axis=-1) / float(denom)
+    )
+    good_fraction_spaxel = (
+        np.sum(base_good[..., instrument_good], axis=-1) / float(denom)
+    )
+
+    # Restrict wavelength-level QC to the real IFU footprint rather than the
+    # zero-exposure output-grid padding.  The same minimum-fraction threshold is
+    # intentionally used for the first implementation so this choice remains
+    # transparent and configurable rather than introducing another hidden cut.
+    coverage_core = coverage_fraction_spaxel >= float(min_good_wavelength_fraction)
+    if not np.any(coverage_core):
+        # A very short/test observation can have wavelength-dependent edge
+        # coverage that fails the strict core definition. Fall back to any
+        # spatial element with at least one covered instrument-good sample, but
+        # keep the final good_spaxel criterion unchanged.
+        coverage_core = coverage_fraction_spaxel > 0
+    if not np.any(coverage_core):
+        raise ValueError("No spatial samples have positive coverage in the instrument-good range")
+
+    n_core = int(np.sum(coverage_core))
+    bad_fraction_wavelength = 1.0 - (
+        np.sum(base_good[coverage_core, :], axis=0) / float(n_core)
+    )
+    global_channel_good = bad_fraction_wavelength <= float(bad_channel_fraction_threshold)
+    good_wavelength = instrument_good & global_channel_good
+
     good_spaxel = good_fraction_spaxel >= float(min_good_wavelength_fraction)
-
     good = base_good & good_wavelength[None, None, :] & good_spaxel[..., None]
-    return good, base_good, good_wavelength, good_spaxel, bad_fraction_wavelength
 
+    return (
+        good,
+        base_good,
+        good_wavelength,
+        good_spaxel,
+        bad_fraction_wavelength,
+        good_fraction_spaxel,
+        coverage_fraction_spaxel,
+    )
+
+
+def _load_primary_array_and_header(
+    path: str | Path,
+    *,
+    dtype: np.dtype | type | None = None,
+) -> tuple[np.ndarray, fits.Header]:
+    """Load one primary-HDU image cube and copy its header.
+
+    KcwiKit final products are separate single-HDU files.  We make an explicit
+    in-memory copy here so the returned array remains valid after the FITS file
+    closes and so the configured float precision is under CRD_DAP control.
+    """
+    source = Path(path).expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(source)
+    with fits.open(source, memmap=True) as hdul:
+        if hdul[0].data is None:
+            raise ValueError(f"PRIMARY contains no data: {source}")
+        arr = np.array(hdul[0].data, dtype=dtype, copy=True)
+        hdr = hdul[0].header.copy()
+    if arr.ndim != 3:
+        raise ValueError(f"Expected a 3-D primary cube in {source}; got shape {arr.shape}")
+    return arr, hdr
+
+
+def _wcs_signature(header: fits.Header) -> dict[str, Any]:
+    """Return the spatial/spectral WCS values that must match companion cubes."""
+    keys = [
+        "NAXIS1", "NAXIS2", "NAXIS3",
+        "CTYPE1", "CTYPE2", "CTYPE3",
+        "CUNIT1", "CUNIT2", "CUNIT3",
+        "CRVAL1", "CRVAL2", "CRVAL3",
+        "CRPIX1", "CRPIX2", "CRPIX3",
+        "CD1_1", "CD1_2", "CD1_3",
+        "CD2_1", "CD2_2", "CD2_3",
+        "CD3_1", "CD3_2", "CD3_3",
+        "CDELT1", "CDELT2", "CDELT3",
+    ]
+    return {key: header[key] for key in keys if key in header}
+
+
+def _headers_have_same_wcs(reference: fits.Header, other: fits.Header) -> tuple[bool, list[str]]:
+    """Compare the WCS-bearing header values of two KcwiKit companion cubes."""
+    ref = _wcs_signature(reference)
+    oth = _wcs_signature(other)
+    mismatches: list[str] = []
+    for key in sorted(set(ref) | set(oth)):
+        if key not in ref or key not in oth:
+            mismatches.append(f"{key}: missing from one companion header")
+            continue
+        a, b = ref[key], oth[key]
+        try:
+            af, bf = float(a), float(b)
+            if not np.isclose(af, bf, rtol=1e-10, atol=1e-12, equal_nan=True):
+                mismatches.append(f"{key}: {a!r} != {b!r}")
+        except (TypeError, ValueError):
+            if str(a).strip().upper() != str(b).strip().upper():
+                mismatches.append(f"{key}: {a!r} != {b!r}")
+    return len(mismatches) == 0, mismatches
+
+
+def load_kcwikit_stack(
+    icube_path: str | Path,
+    vcube_path: str | Path,
+    mcube_path: str | Path,
+    ecube_path: str | Path,
+    *,
+    arm: str,
+    min_good_wavelength_fraction: float = 0.80,
+    bad_channel_fraction_threshold: float = 0.50,
+    float_dtype: str | np.dtype = "float32",
+) -> KCWICube:
+    """Load a four-file KcwiKit post-DRP stack into the CRD_DAP cube model.
+
+    Parameters
+    ----------
+    icube_path, vcube_path, mcube_path, ecube_path
+        KcwiKit stacked flux, variance, binary mask, and effective-exposure
+        products, respectively.
+    arm
+        CRD_DAP arm label (normally ``BL`` or ``RH3``).
+    float_dtype
+        In-memory precision for the large stacked flux/variance/exposure cubes.
+        ``float32`` is the default to keep a BL+RH3 Script-1 run practical on a
+        workstation; extracted spectra may later be promoted to float64 for
+        pPXF.  Set to ``float64`` if memory is plentiful and exact preservation
+        of the KcwiKit storage precision is desired.
+
+    Notes
+    -----
+    KcwiKit's current stacking implementation uses the input PyDRP ``FLAGS`` to
+    reject bad samples, but its final ``mcubes`` product is set from whether the
+    effective exposure is zero.  Consequently the original bit-level flag values
+    are not present in the final stack and CRD_DAP stores a zero-valued placeholder
+    ``flags`` array while explicitly recording ``input_format='kcwikit'``.
+    """
+    paths = {
+        "icube": Path(icube_path).expanduser().resolve(),
+        "vcube": Path(vcube_path).expanduser().resolve(),
+        "mcube": Path(mcube_path).expanduser().resolve(),
+        "ecube": Path(ecube_path).expanduser().resolve(),
+    }
+    for role, source in paths.items():
+        if not source.exists():
+            raise FileNotFoundError(f"KcwiKit {role} does not exist: {source}")
+
+    dtype = np.dtype(float_dtype)
+    primary, header = _load_primary_array_and_header(paths["icube"], dtype=dtype)
+    variance_native, vheader = _load_primary_array_and_header(paths["vcube"], dtype=dtype)
+    mask_native, mheader = _load_primary_array_and_header(paths["mcube"], dtype=np.int16)
+    exposure_native, eheader = _load_primary_array_and_header(paths["ecube"], dtype=dtype)
+
+    for role, arr in (
+        ("vcube", variance_native),
+        ("mcube", mask_native),
+        ("ecube", exposure_native),
+    ):
+        if arr.shape != primary.shape:
+            raise ValueError(
+                f"KcwiKit {role} shape {arr.shape} does not match icube shape {primary.shape}"
+            )
+
+    for role, hdr in (("vcube", vheader), ("mcube", mheader), ("ecube", eheader)):
+        same, mismatches = _headers_have_same_wcs(header, hdr)
+        if not same:
+            details = "; ".join(mismatches[:12])
+            raise ValueError(
+                f"KcwiKit {role} WCS does not match icube WCS. "
+                f"First mismatch(es): {details}"
+            )
+
+    fits_spec_axis = _find_spectral_fits_axis(header, primary.ndim)
+    np_spec_axis = _numpy_axis_from_fits_axis(fits_spec_axis, primary.ndim)
+
+    flux_c = np.asarray(_canonicalize(primary, np_spec_axis), dtype=dtype)
+    var_c = np.asarray(_canonicalize(variance_native, np_spec_axis), dtype=dtype)
+    stack_mask_c = np.asarray(_canonicalize(mask_native, np_spec_axis), dtype=np.int16)
+    exposure_c = np.asarray(_canonicalize(exposure_native, np_spec_axis), dtype=dtype)
+
+    # The current KcwiKit final mask is binary.  Fail loudly if a future version
+    # starts writing another convention so we can inspect it rather than silently
+    # interpreting bit values incorrectly.
+    unexpected_mask = (stack_mask_c != 0) & (stack_mask_c != 1)
+    if np.any(unexpected_mask):
+        sample_values = np.asarray(stack_mask_c[unexpected_mask][:20])
+        raise ValueError(
+            "KcwiKit final mcube contains values outside {0,1}; its mask semantics "
+            f"may have changed. Example unexpected values: {sample_values!r}."
+        )
+    mask_c = stack_mask_c != 0
+
+    # KcwiKit vcubes are variances, not 1-sigma uncertainties.  Only positive,
+    # finite variance values are square-rooted. Invalid/padded samples remain NaN
+    # here and are subsequently excluded by the hard-good mask.
+    uncertainty_c = np.full(var_c.shape, np.nan, dtype=dtype)
+    positive_var = np.isfinite(var_c) & (var_c > 0)
+    uncertainty_c[positive_var] = np.sqrt(var_c[positive_var]).astype(dtype, copy=False)
+
+    covered = np.isfinite(exposure_c) & (exposure_c > 0) & (~mask_c)
+    bad_negative = covered & np.isfinite(var_c) & (var_c < 0)
+    if np.any(bad_negative):
+        raise ValueError(
+            f"KcwiKit variance cube contains {int(np.sum(bad_negative))} negative "
+            "variance samples inside valid exposure coverage."
+        )
+
+    # Original PyDRP flags are no longer available after KcwiKit's final binary
+    # mask construction.  Do not infer or fabricate bit meanings.
+    flags_c = None
+
+    wave = wavelength_axis_from_header(header, flux_c.shape[-1], fits_axis=fits_spec_axis)
+    wavegood0 = header.get("WAVGOOD0")
+    wavegood1 = header.get("WAVGOOD1")
+
+    (
+        good,
+        base_good,
+        good_wave,
+        good_spaxel,
+        bad_wave_frac,
+        good_fraction_spaxel,
+        coverage_fraction_spaxel,
+    ) = build_quality_masks(
+        flux_c,
+        uncertainty_c,
+        mask_c,
+        flags_c,
+        wave,
+        exposure=exposure_c,
+        wavegood0=wavegood0,
+        wavegood1=wavegood1,
+        reject_any_nonzero_flag=False,
+        min_good_wavelength_fraction=min_good_wavelength_fraction,
+        bad_channel_fraction_threshold=bad_channel_fraction_threshold,
+    )
+
+    try:
+        celestial = WCS(header).celestial
+        if celestial.pixel_n_dim != 2 or celestial.world_n_dim != 2:
+            raise ValueError
+    except Exception as exc:
+        raise ValueError(
+            f"A valid 2-D celestial WCS is required for BL/RH3 registration: {paths['icube']}"
+        ) from exc
+
+    return KCWICube(
+        path=paths["icube"],
+        arm=str(arm),
+        flux=flux_c,
+        uncertainty=uncertainty_c,
+        variance=var_c,
+        exposure=exposure_c,
+        drp_mask=mask_c,
+        flags=flags_c,
+        noskysub=None,
+        wavelength=wave,
+        good=good,
+        base_good=base_good,
+        good_wavelength=good_wave,
+        good_spaxel=good_spaxel,
+        good_fraction_spaxel=good_fraction_spaxel,
+        bad_fraction_wavelength=bad_wave_frac,
+        header=header,
+        original_spectral_axis=np_spec_axis,
+        original_shape=tuple(int(v) for v in primary.shape),
+        celestial_wcs=celestial,
+        input_format="kcwikit",
+        source_paths=paths,
+        coverage_fraction_spaxel=coverage_fraction_spaxel,
+    )
 
 def load_kcwi_cube(
     path: str | Path,
@@ -402,7 +703,7 @@ def load_kcwi_cube(
         mask_c = np.asarray(mask_c).astype(bool)
 
     if flags_c is None:
-        flags_c = np.zeros(flux_c.shape, dtype=np.uint16)
+        flags_c = None
     else:
         flags_c = np.asarray(flags_c)
 
@@ -410,12 +711,21 @@ def load_kcwi_cube(
     wavegood0 = header.get("WAVGOOD0")
     wavegood1 = header.get("WAVGOOD1")
 
-    good, base_good, good_wave, good_spaxel, bad_wave_frac = build_quality_masks(
+    (
+        good,
+        base_good,
+        good_wave,
+        good_spaxel,
+        bad_wave_frac,
+        good_fraction_spaxel,
+        coverage_fraction_spaxel,
+    ) = build_quality_masks(
         flux_c,
         uncert_c,
         mask_c,
         flags_c,
         wave,
+        exposure=None,
         wavegood0=wavegood0,
         wavegood1=wavegood1,
         reject_any_nonzero_flag=reject_any_nonzero_flag,
@@ -432,23 +742,13 @@ def load_kcwi_cube(
             f"A valid 2-D celestial WCS is required for BL/RH3 registration: {source}"
         ) from exc
 
-    # Recompute good-fraction array here so it is directly available on the
-    # object (build_quality_masks returns only the final boolean spatial mask).
-    instrument_good = np.isfinite(wave)
-    if wavegood0 is not None:
-        instrument_good &= wave >= float(wavegood0)
-    if wavegood1 is not None:
-        instrument_good &= wave <= float(wavegood1)
-    good_fraction_spaxel = np.sum(base_good[..., instrument_good], axis=-1) / float(
-        np.sum(instrument_good)
-    )
-
     return KCWICube(
         path=source,
         arm=str(arm),
         flux=flux_c,
         uncertainty=uncert_c,
         variance=uncert_c**2,
+        exposure=None,
         drp_mask=mask_c,
         flags=flags_c,
         noskysub=None if nosky_c is None else np.asarray(nosky_c, dtype=float),
@@ -463,6 +763,9 @@ def load_kcwi_cube(
         original_spectral_axis=np_spec_axis,
         original_shape=tuple(int(v) for v in primary.shape),
         celestial_wcs=celestial,
+        input_format="drp",
+        source_paths={"cube": source},
+        coverage_fraction_spaxel=coverage_fraction_spaxel,
     )
 
 
@@ -481,6 +784,7 @@ def save_prepared_cube(cube: KCWICube, destination: str | Path, *, overwrite: bo
     header["CRDDAP"] = (True, "Processed by CRD_DAP")
     header["CRDSTEP"] = (1, "CRD_DAP preparation step")
     header["CRDARM"] = (cube.arm, "CRD_DAP arm label")
+    header["CRDINFMT"] = (cube.input_format, "CRD_DAP science input format")
 
     primary = fits.PrimaryHDU(
         _uncanonicalize(cube.flux, cube.original_spectral_axis).astype(np.float32),
@@ -500,12 +804,20 @@ def save_prepared_cube(cube: KCWICube, destination: str | Path, *, overwrite: bo
             name="MASK",
         )
     )
-    hdus.append(
-        fits.ImageHDU(
-            _uncanonicalize(cube.flags, cube.original_spectral_axis),
-            name="FLAGS",
+    if cube.exposure is not None:
+        exp_hdu = fits.ImageHDU(
+            _uncanonicalize(cube.exposure, cube.original_spectral_axis).astype(np.float32),
+            name="EXPOSURE",
         )
-    )
+        exp_hdu.header["BUNIT"] = "s"
+        hdus.append(exp_hdu)
+    if cube.flags is not None:
+        hdus.append(
+            fits.ImageHDU(
+                _uncanonicalize(cube.flags, cube.original_spectral_axis),
+                name="FLAGS",
+            )
+        )
     if cube.noskysub is not None:
         hdus.append(
             fits.ImageHDU(
@@ -522,12 +834,44 @@ def save_prepared_cube(cube: KCWICube, destination: str | Path, *, overwrite: bo
     )
     hdus.append(fits.ImageHDU(cube.good_spaxel.astype(np.uint8), name="GOODSPAX"))
     hdus.append(fits.ImageHDU(cube.good_fraction_spaxel.astype(np.float32), name="GOODFRAC"))
+    if cube.coverage_fraction_spaxel is not None:
+        hdus.append(
+            fits.ImageHDU(cube.coverage_fraction_spaxel.astype(np.float32), name="COVFRAC")
+        )
     hdus.append(fits.ImageHDU(cube.good_wavelength.astype(np.uint8), name="GOODWAVE"))
     hdus.append(fits.ImageHDU(cube.wavelength.astype(np.float64), name="WAVELENGTH"))
 
     fits.HDUList(hdus).writeto(destination, overwrite=overwrite)
     return destination
 
+
+
+def summarize_binary_mask(mask: np.ndarray) -> dict[str, int]:
+    """Return exact counts for a binary valid/invalid stack mask."""
+    arr = np.asarray(mask)
+    return {
+        "valid_zero": int(np.sum(arr == 0)),
+        "invalid_nonzero": int(np.sum(arr != 0)),
+        "total": int(arr.size),
+    }
+
+
+def summarize_effective_exposure(exposure: np.ndarray | None) -> dict[str, float | int] | None:
+    """Return compact coverage/exposure statistics for logs and manifests."""
+    if exposure is None:
+        return None
+    arr = np.asarray(exposure, dtype=float)
+    positive = arr[np.isfinite(arr) & (arr > 0)]
+    if positive.size == 0:
+        return {"positive_samples": 0, "total_samples": int(arr.size)}
+    return {
+        "positive_samples": int(positive.size),
+        "total_samples": int(arr.size),
+        "positive_fraction": float(positive.size / arr.size),
+        "min_positive_s": float(np.min(positive)),
+        "median_positive_s": float(np.median(positive)),
+        "max_positive_s": float(np.max(positive)),
+    }
 
 def _header_match_token(header: fits.Header, key: str) -> str:
     """Return a normalized string token used for calibration-file matching."""

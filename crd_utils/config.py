@@ -30,14 +30,20 @@ from typing import Any, Iterable
 REQUIRED_CONFIG_KEYS = (
     "TARGET_NAME",
     "REDSHIFT",
-    "BL_CUBE",
-    "RH3_CUBE",
+    "SCIENCE_INPUT_FORMAT",
     "BL_MASTER_ARC",
     "RH3_MASTER_ARC",
     "PYMORPH_VAC",
     "XSL_TEMPLATE_LIBRARY",
     "RUNS_ROOT",
 )
+
+_KCWIKIT_STACK_KEYS = (
+    "BL_ICUBE", "BL_VCUBE", "BL_MCUBE", "BL_ECUBE",
+    "RH3_ICUBE", "RH3_VCUBE", "RH3_MCUBE", "RH3_ECUBE",
+)
+
+_DRP_CUBE_KEYS = ("BL_CUBE", "RH3_CUBE")
 
 
 @dataclass(frozen=True)
@@ -111,10 +117,21 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
     if float(cfg.REDSHIFT) < 0:
         raise ValueError("REDSHIFT must be non-negative.")
 
+    input_format = str(cfg.SCIENCE_INPUT_FORMAT).strip().lower()
+    if input_format not in {"kcwikit", "drp"}:
+        raise ValueError("SCIENCE_INPUT_FORMAT must be either 'kcwikit' or 'drp'.")
+
+    format_keys = _KCWIKIT_STACK_KEYS if input_format == "kcwikit" else _DRP_CUBE_KEYS
+    missing_format = [key for key in format_keys if not hasattr(cfg.module, key)]
+    if missing_format:
+        raise ValueError(
+            f"SCIENCE_INPUT_FORMAT={input_format!r} requires configuration keys: "
+            + ", ".join(missing_format)
+        )
+
     if strict_paths:
         path_keys = (
-            "BL_CUBE",
-            "RH3_CUBE",
+            *format_keys,
             "BL_MASTER_ARC",
             "RH3_MASTER_ARC",
             "PYMORPH_VAC",
@@ -122,9 +139,13 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
         )
         absent = []
         for key in path_keys:
-            value = Path(getattr(cfg, key)).expanduser()
-            if not value.exists():
-                absent.append(f"{key}={value}")
+            value = getattr(cfg, key)
+            if value is None:
+                absent.append(f"{key}=None")
+                continue
+            path = Path(value).expanduser()
+            if not path.exists():
+                absent.append(f"{key}={path}")
         if absent:
             raise FileNotFoundError(
                 "Required input path(s) do not exist:\n  - " + "\n  - ".join(absent)
@@ -143,6 +164,9 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
     bad_channel = float(getattr(cfg, "BAD_CHANNEL_FRACTION_THRESHOLD", 0.50))
     if not 0.0 <= bad_channel <= 1.0:
         raise ValueError("BAD_CHANNEL_FRACTION_THRESHOLD must lie between 0 and 1.")
+    stack_dtype = str(getattr(cfg, "STACK_FLOAT_DTYPE", "float32")).lower()
+    if stack_dtype not in {"float32", "float64"}:
+        raise ValueError("STACK_FLOAT_DTYPE must be 'float32' or 'float64'.")
     if int(getattr(cfg, "LSF_MODEL_WAVELENGTH_ORDER", 2)) < 0:
         raise ValueError("LSF_MODEL_WAVELENGTH_ORDER cannot be negative.")
     if int(getattr(cfg, "ARC_MIN_GOOD_LINES", 6)) < 3:

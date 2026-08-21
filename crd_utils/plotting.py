@@ -271,3 +271,42 @@ def plot_spectral_covariance(result: NoiseDiagnosticResult, path: str | Path, *,
     ax.set_ylabel("Median residual correlation coefficient")
     ax.set_title(title)
     return _finish(fig, path)
+
+
+def plot_effective_exposure(
+    median_exposure: np.ndarray,
+    coverage_fraction: np.ndarray,
+    path: str | Path,
+    *,
+    title: str,
+) -> Path:
+    """Plot median effective exposure and wavelength-coverage fraction.
+
+    This diagnostic is especially important for KcwiKit stacks whose requested
+    output dimensions can intentionally exceed the illuminated IFU footprint.
+    Zero-exposure padding should remain visually obvious and must never be passed
+    to PowerBin as if it were low-S/N science data.
+    """
+    exp = np.asarray(median_exposure, dtype=float)
+    cov = np.asarray(coverage_fraction, dtype=float)
+    if exp.shape != cov.shape or exp.ndim != 2:
+        raise ValueError("median_exposure and coverage_fraction must be matching 2-D arrays")
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5), constrained_layout=True)
+
+    finite_positive = exp[np.isfinite(exp) & (exp > 0)]
+    vmax = float(np.nanpercentile(finite_positive, 99)) if finite_positive.size else None
+    im0 = axes[0].imshow(exp, origin="lower", vmin=0, vmax=vmax, aspect="equal")
+    fig.colorbar(im0, ax=axes[0], shrink=0.85, label="Median effective exposure (s)")
+    axes[0].set_title("Effective exposure")
+
+    im1 = axes[1].imshow(cov, origin="lower", vmin=0, vmax=1, aspect="equal")
+    fig.colorbar(im1, ax=axes[1], shrink=0.85, label="Wavelength coverage fraction")
+    axes[1].set_title("Instrument-good wavelength coverage")
+
+    for ax in axes:
+        ax.set_xlabel("Spatial x pixel")
+        ax.set_ylabel("Spatial y pixel")
+
+    fig.suptitle(title)
+    return _finish(fig, path)
