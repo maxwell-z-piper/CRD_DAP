@@ -1,8 +1,8 @@
 # Local installation
-After downloading/extracting the bundle, place the folder at:
-
-```text
-/Path/to/CRD_DAP
+Clone the github repo to your local device:
+```bash
+cd /Path/to/place/CRD_DAP
+git clone https://github.com/maxwell-z-piper/CRD_DAP.git
 ```
 
 Then, from Terminal, make a conda environment using python 3.12:
@@ -11,9 +11,10 @@ conda create -n crd_dap python=3.12
 conda activate crd_dap
 ```
 
-Within this environment, upgrade pip and install all the necessary packages. Then, run the pytest command to ensure everything is installed correctly.
+Within this environment, cd into CRD_DAP. Upgrade pip and install all the necessary packages. Then, run the pytest command to ensure everything is installed correctly.
 
 ```bash
+cd CRD_DAP
 python -m pip install --upgrade pip
 python -m pip install -e ".[science,dev]"
 
