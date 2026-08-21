@@ -5,28 +5,21 @@ After downloading/extracting the bundle, place the folder at:
 /Path/to/CRD_DAP
 ```
 
-Then, from Terminal:
+Then, from Terminal, make a conda environment using python 3.12:
+```bash
+conda create -n crd_dap python=3.12
+conda activate crd_dap
+```
 
 ```bash
-cd /Path/to/CRD_DAP
-
-python3 -m venv .venv
-source .venv/bin/activate
-
 python -m pip install --upgrade pip
 python -m pip install -e ".[science,dev]"
 
 python -m pytest -q
 ```
 
-The current infrastructure tests should pass before Script 1 development begins.
-
-When ready to initialize Git locally:
-
+If the tests pass successfully, you are ready to run the pipeline. Remember to duplicate the target_config_template.py script and populate it with your target's specific information, and to rename it. This is needed to run every step of the pipeline as 
 ```bash
-git init
-git add .
-git commit -m "Initialize CRD_DAP pipeline architecture"
+/cd/to/scripts/
+python *specific pipeline script*.py --config */path/to/specific config*.py
 ```
-
-Do not commit large FITS cubes, master arcs, XSL libraries, PyMorph VAC files, or generated run products. The included `.gitignore` is already set up to exclude the normal large-data/product locations and common array/FITS outputs.
