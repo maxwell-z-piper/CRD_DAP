@@ -8,8 +8,10 @@ cubes scientifically safe and mutually interpretable before PowerBin.
 
 Primary responsibilities
 ------------------------
-1. Load stacked KCWI/KCRM cubes and standardize their internal axis order.
-2. Build hard sample/spaxel/wavelength masks from DRP quality products.
+1. Load matched KcwiKit four-file BL/RH3 stacks (or legacy DRP cubes) and
+   standardize their internal axis order.
+2. Build hard sample/spaxel/wavelength masks from variance, stack-mask,
+   effective-exposure, and wavelength-validity information.
 3. Create robust collapsed-continuum images and center diagnostics.
 4. Verify BL/RH3 WCS registration without resampling the science cubes.
 5. Save common tangent-plane spatial coordinates for both arms.
@@ -91,6 +93,82 @@ def _save_spatial_coordinates(
         center_dec_deg=float(center_sky.dec.deg),
     )
     return x_arcsec, y_arcsec
+
+
+def _load_science_arm(arm: str, cfg, logger) -> io.KCWICube:
+    """Load one science arm using the configured input layout.
+
+    KcwiKit is the production path because it preserves the stacked flux,
+    variance, mask, and effective-exposure products separately.  The legacy DRP
+    path remains useful for single-cube validation and backwards compatibility.
+    """
+    prefix = arm.upper()
+    input_format = str(cfg.SCIENCE_INPUT_FORMAT).strip().lower()
+
+    if input_format == "kcwikit":
+        cube = io.load_kcwikit_stack(
+            getattr(cfg, f"{prefix}_ICUBE"),
+            getattr(cfg, f"{prefix}_VCUBE"),
+            getattr(cfg, f"{prefix}_MCUBE"),
+            getattr(cfg, f"{prefix}_ECUBE"),
+            arm=arm,
+            min_good_wavelength_fraction=float(cfg.MIN_GOOD_WAVELENGTH_FRACTION),
+            bad_channel_fraction_threshold=float(cfg.BAD_CHANNEL_FRACTION_THRESHOLD),
+            float_dtype=str(cfg.STACK_FLOAT_DTYPE),
+        )
+        logger.info("%s science input: KcwiKit four-file stack", arm)
+        for role, path in (cube.source_paths or {}).items():
+            logger.info("%s %s: %s", arm, role, path)
+        logger.info("%s KcwiKit stack-mask counts: %s", arm, io.summarize_binary_mask(cube.drp_mask))
+        logger.info("%s effective-exposure summary: %s", arm, io.summarize_effective_exposure(cube.exposure))
+        logger.info(
+            "%s note: original PyDRP FLAGS were consumed by KcwiKit during stacking; "
+            "the final mcube is binary and no bit-level FLAGS are reconstructed.",
+            arm,
+        )
+        return cube
+
+    if input_format == "drp":
+        cube = io.load_kcwi_cube(
+            getattr(cfg, f"{prefix}_CUBE"),
+            arm=arm,
+            reject_any_nonzero_flag=bool(cfg.REJECT_ANY_NONZERO_DRP_FLAG),
+            min_good_wavelength_fraction=float(cfg.MIN_GOOD_WAVELENGTH_FRACTION),
+            bad_channel_fraction_threshold=float(cfg.BAD_CHANNEL_FRACTION_THRESHOLD),
+        )
+        logger.info("%s science input: native/legacy DRP multi-extension cube", arm)
+        logger.info("%s exact DRP FLAGS value counts: %s", arm, io.summarize_integer_flags(cube.flags))
+        return cube
+
+    raise ValueError(f"Unsupported SCIENCE_INPUT_FORMAT={cfg.SCIENCE_INPUT_FORMAT!r}")
+
+
+def _save_exposure_diagnostic(arm: str, cube: io.KCWICube, run, logger) -> None:
+    """Save a 2-D effective-exposure / coverage diagnostic for KcwiKit stacks."""
+    if cube.exposure is None:
+        logger.info("%s has no explicit exposure cube; skipping effective-exposure plot", arm)
+        return
+
+    # Keep zeros in the statistic so a spatial pixel covered at only a subset of
+    # wavelengths is visibly distinguished from one with full wavelength
+    # coverage.  Restrict the collapse to instrument/global-good wavelengths.
+    exp = np.asarray(cube.exposure, dtype=float)
+    use_wave = np.asarray(cube.good_wavelength, dtype=bool)
+    if not np.any(use_wave):
+        logger.warning("%s has no good wavelengths for exposure diagnostic", arm)
+        return
+    median_exp = np.nanmedian(exp[..., use_wave], axis=-1)
+    coverage = (
+        cube.coverage_fraction_spaxel
+        if cube.coverage_fraction_spaxel is not None
+        else np.mean(exp[..., use_wave] > 0, axis=-1)
+    )
+    plotting.plot_effective_exposure(
+        median_exp,
+        coverage,
+        run.figures_dir / f"{arm.upper()}_effective_exposure.png",
+        title=f"{arm.upper()} KcwiKit effective exposure / wavelength coverage",
+    )
 
 
 def _run_lsf(
@@ -239,20 +317,8 @@ def main() -> int:
         # 1. Read science cubes and establish hard data-quality masks.
         # ------------------------------------------------------------------
         crd.log_section(logger, "1. Load KCWI/KCRM science cubes")
-        bl = io.load_kcwi_cube(
-            cfg.BL_CUBE,
-            arm="BL",
-            reject_any_nonzero_flag=bool(cfg.REJECT_ANY_NONZERO_DRP_FLAG),
-            min_good_wavelength_fraction=float(cfg.MIN_GOOD_WAVELENGTH_FRACTION),
-            bad_channel_fraction_threshold=float(cfg.BAD_CHANNEL_FRACTION_THRESHOLD),
-        )
-        rh3 = io.load_kcwi_cube(
-            cfg.RH3_CUBE,
-            arm="RH3",
-            reject_any_nonzero_flag=bool(cfg.REJECT_ANY_NONZERO_DRP_FLAG),
-            min_good_wavelength_fraction=float(cfg.MIN_GOOD_WAVELENGTH_FRACTION),
-            bad_channel_fraction_threshold=float(cfg.BAD_CHANNEL_FRACTION_THRESHOLD),
-        )
+        bl = _load_science_arm("BL", cfg, logger)
+        rh3 = _load_science_arm("RH3", cfg, logger)
 
         for cube in (bl, rh3):
             logger.info(
@@ -268,8 +334,14 @@ def main() -> int:
                 int(np.sum(cube.good_wavelength)),
                 int(cube.good_wavelength.size),
             )
-            logger.info("%s FITS extensions: %s", cube.arm, io.inspect_fits_extensions(cube.path))
-            logger.info("%s exact DRP FLAGS value counts: %s", cube.arm, io.summarize_integer_flags(cube.flags))
+            logger.info("%s primary science FITS structure: %s", cube.arm, io.inspect_fits_extensions(cube.path))
+            logger.info(
+                "%s spatial wavelength-coverage fraction: median=%.3f, min=%.3f, max=%.3f",
+                cube.arm,
+                float(np.nanmedian(cube.coverage_fraction_spaxel)),
+                float(np.nanmin(cube.coverage_fraction_spaxel)),
+                float(np.nanmax(cube.coverage_fraction_spaxel)),
+            )
 
         # Wavelength medium/frame bookkeeping is explicit. The XSL template
         # library may currently be in a different medium; that is recorded as a
@@ -445,6 +517,8 @@ def main() -> int:
         # 4. Data-quality diagnostics.
         # ------------------------------------------------------------------
         crd.log_section(logger, "4. Data-quality diagnostics")
+        _save_exposure_diagnostic("BL", bl, run, logger)
+        _save_exposure_diagnostic("RH3", rh3, run, logger)
         for cube in (bl, rh3):
             prefix = cube.arm.upper()
             plotting.plot_valid_spaxels(
@@ -613,6 +687,11 @@ def main() -> int:
             "elapsed_seconds": elapsed,
             "prepared_BL": str(bl_prepared),
             "prepared_RH3": str(rh3_prepared),
+            "science_input_format": str(cfg.SCIENCE_INPUT_FORMAT),
+            "BL_source_paths": {k: str(v) for k, v in (bl.source_paths or {}).items()},
+            "RH3_source_paths": {k: str(v) for k, v in (rh3.source_paths or {}).items()},
+            "BL_effective_exposure": io.summarize_effective_exposure(bl.exposure),
+            "RH3_effective_exposure": io.summarize_effective_exposure(rh3.exposure),
             "quality_flags": quality_flags,
             "common_center_ra_deg": float(common_center.ra.deg),
             "common_center_dec_deg": float(common_center.dec.deg),
