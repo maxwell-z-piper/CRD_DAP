@@ -80,6 +80,67 @@ def _quality_flag(flags: list[str], name: str, logger, message: str) -> None:
     logger.warning("%s | %s", name, message)
 
 
+def _log_sn_summary(logger, arm: str, diag: binning.BinSNDiagnostics) -> None:
+    """Log only scientifically defined positive-continuum achieved S/N values."""
+    valid = np.asarray(diag.sn, dtype=float)
+    finite = np.isfinite(valid)
+    if np.any(finite):
+        logger.info(
+            "Achieved %s bin S/N (robust ratio-of-medians): valid=%d/%d, median=%.2f, min=%.2f, max=%.2f",
+            arm,
+            int(np.sum(finite)),
+            int(valid.size),
+            float(np.nanmedian(valid)),
+            float(np.nanmin(valid)),
+            float(np.nanmax(valid)),
+        )
+    else:
+        logger.warning(
+            "Achieved %s bin S/N: no bins have a valid positive-continuum S/N in the configured window",
+            arm,
+        )
+
+
+def _sn_qc_masks(diag: binning.BinSNDiagnostics, cfg) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return non-positive, extreme-value, and estimator-disagreement bin masks."""
+    enough = np.asarray(diag.n_good_channels, dtype=int) >= int(cfg.BIN_SN_MIN_GOOD_CHANNELS)
+    nonpositive = enough & np.isfinite(diag.signed_sn) & (~np.asarray(diag.positive_continuum, dtype=bool))
+
+    extreme_limit = float(cfg.BIN_SN_EXTREME_ABS_WARNING)
+    extreme = (
+        (np.isfinite(diag.signed_sn) & (np.abs(diag.signed_sn) > extreme_limit))
+        | (np.isfinite(diag.legacy_median_ratio) & (np.abs(diag.legacy_median_ratio) > extreme_limit))
+    )
+
+    signed_abs = np.abs(np.asarray(diag.signed_sn, dtype=float))
+    legacy_abs = np.abs(np.asarray(diag.legacy_median_ratio, dtype=float))
+    small = np.minimum(signed_abs, legacy_abs)
+    large = np.maximum(signed_abs, legacy_abs)
+    factor = float(cfg.BIN_SN_ESTIMATOR_DISAGREEMENT_FACTOR)
+    disagreement = (
+        np.isfinite(signed_abs)
+        & np.isfinite(legacy_abs)
+        & (large > 1.0)
+        & (large > factor * np.maximum(small, 1.0e-12))
+    )
+    return nonpositive, extreme, disagreement
+
+
+def _format_bin_examples(diag: binning.BinSNDiagnostics, mask: np.ndarray, max_bins: int = 8) -> str:
+    """Compact diagnostic string for logs without flooding a large-bin run."""
+    ids = np.flatnonzero(mask)[: int(max_bins)]
+    if ids.size == 0:
+        return ""
+    parts = []
+    for bid in ids:
+        parts.append(
+            f"{int(bid)}(signed={diag.signed_sn[bid]:.3g}, legacy={diag.legacy_median_ratio[bid]:.3g}, "
+            f"medflux={diag.median_flux[bid]:.3g}, medunc={diag.median_uncertainty[bid]:.3g}, "
+            f"nchan={int(diag.n_good_channels[bid])})"
+        )
+    return ", ".join(parts)
+
+
 def _required_script1_products(run_dir: Path) -> dict[str, Path]:
     products = run_dir / "products"
     return {
@@ -522,30 +583,63 @@ def main() -> int:
             pixel_area_arcsec2=rh3_area,
             min_member_fraction=float(cfg.BIN_SPECTRUM_MIN_MEMBER_FRACTION),
         )
-        bl_sn = binning.achieved_sn_per_bin(
+        # Achieved continuum S/N is a QC/reporting quantity, not the quantity
+        # used to define the PowerBin tessellation.  Use the robust
+        # ratio-of-medians estimator and retain the older median(flux/uncertainty)
+        # statistic only as an audit diagnostic.  This prevents a negative
+        # continuum combined with tiny formal uncertainties from appearing as a
+        # physically meaningful enormous negative "achieved S/N".
+        bl_sn_diag = binning.achieved_sn_diagnostics_per_bin(
             bl_spec,
             bl.wavelength,
             rest_range=tuple(cfg.BL_BINNING_REST_RANGE_ANGSTROM),
             redshift=float(cfg.REDSHIFT),
+            min_good_channels=int(cfg.BIN_SN_MIN_GOOD_CHANNELS),
+            require_positive_continuum=bool(cfg.BIN_SN_REQUIRE_POSITIVE_CONTINUUM),
         )
-        rh3_sn = binning.achieved_sn_per_bin(
+        rh3_sn_diag = binning.achieved_sn_diagnostics_per_bin(
             rh3_spec,
             rh3.wavelength,
             rest_range=tuple(cfg.RH3_SN_REST_RANGE_ANGSTROM),
             redshift=float(cfg.REDSHIFT),
+            min_good_channels=int(cfg.BIN_SN_MIN_GOOD_CHANNELS),
+            require_positive_continuum=bool(cfg.BIN_SN_REQUIRE_POSITIVE_CONTINUUM),
         )
-        logger.info(
-            "Achieved BL bin S/N: median=%.2f, min=%.2f, max=%.2f",
-            float(np.nanmedian(bl_sn)),
-            float(np.nanmin(bl_sn)),
-            float(np.nanmax(bl_sn)),
-        )
-        logger.info(
-            "Achieved RH3 S/N in same bins: median=%.2f, min=%.2f, max=%.2f",
-            float(np.nanmedian(rh3_sn)),
-            float(np.nanmin(rh3_sn)),
-            float(np.nanmax(rh3_sn)),
-        )
+        bl_sn = bl_sn_diag.sn
+        rh3_sn = rh3_sn_diag.sn
+
+        _log_sn_summary(logger, "BL", bl_sn_diag)
+        _log_sn_summary(logger, "RH3", rh3_sn_diag)
+
+        # Preserve unusual signed values as explicit QC rather than silently
+        # clipping or modifying the underlying spectra/variance.
+        for arm, diag in (("BL", bl_sn_diag), ("RH3", rh3_sn_diag)):
+            nonpositive, extreme, disagreement = _sn_qc_masks(diag, cfg)
+            if np.any(nonpositive):
+                _quality_flag(
+                    quality_flags,
+                    "NONPOSITIVE_BIN_CONTINUUM",
+                    logger,
+                    f"{arm}: {int(np.sum(nonpositive))}/{pb.n_bins} bins have non-positive median continuum in the configured S/N window; production-facing achieved S/N is NaN for those bins. "
+                    f"Examples: {_format_bin_examples(diag, nonpositive)}",
+                )
+            if np.any(extreme):
+                _quality_flag(
+                    quality_flags,
+                    "EXTREME_BIN_SN_DIAGNOSTIC",
+                    logger,
+                    f"{arm}: {int(np.sum(extreme))}/{pb.n_bins} bins exceed |S/N|>{float(cfg.BIN_SN_EXTREME_ABS_WARNING):g} in the signed robust or legacy estimator. "
+                    f"No data are clipped; inspect formal uncertainties/window placement. Examples: {_format_bin_examples(diag, extreme)}",
+                )
+            if np.any(disagreement):
+                _quality_flag(
+                    quality_flags,
+                    "BIN_SN_ESTIMATOR_DISAGREEMENT",
+                    logger,
+                    f"{arm}: {int(np.sum(disagreement))}/{pb.n_bins} bins show >{float(cfg.BIN_SN_ESTIMATOR_DISAGREEMENT_FACTOR):g}x disagreement between robust ratio-of-medians and legacy median(flux/uncertainty). "
+                    f"Examples: {_format_bin_examples(diag, disagreement)}",
+                )
+
         low_limit = float(cfg.BL_TARGET_SN) * float(cfg.BINNING_LOW_SN_WARNING_FRACTION)
         low_bins = np.flatnonzero(np.isfinite(bl_sn) & (bl_sn < low_limit))
         if low_bins.size:
@@ -561,7 +655,7 @@ def main() -> int:
             bl_sn,
             run.figures_dir / "BL_SN_per_bin.png",
             title="BL achieved S/N per master PowerBin",
-            colorbar_label="Median continuum S/N per spectral pixel",
+            colorbar_label="Robust continuum S/N per spectral pixel",
             vmin=0.0,
         )
         plotting.plot_bin_value_map(
@@ -569,7 +663,7 @@ def main() -> int:
             rh3_sn,
             run.figures_dir / "RH3_SN_per_bin.png",
             title="RH3 achieved S/N in BL-defined PowerBins",
-            colorbar_label="Median continuum S/N per spectral pixel",
+            colorbar_label="Robust continuum S/N per spectral pixel",
             vmin=0.0,
         )
         plotting.plot_bl_rh3_sn_comparison(
@@ -609,6 +703,22 @@ def main() -> int:
         table["DEC_DEG"] = np.asarray(sky.dec.deg, dtype=float)
         table["BL_SN"] = bl_sn
         table["RH3_SN"] = rh3_sn
+        # Signed/audit columns are intentionally verbose: they make a future
+        # pathological S/N immediately traceable without reopening the cubes.
+        table["BL_SN_SIGNED"] = bl_sn_diag.signed_sn
+        table["RH3_SN_SIGNED"] = rh3_sn_diag.signed_sn
+        table["BL_SN_LEGACY"] = bl_sn_diag.legacy_median_ratio
+        table["RH3_SN_LEGACY"] = rh3_sn_diag.legacy_median_ratio
+        table["BL_SN_MEDFLUX"] = bl_sn_diag.median_flux
+        table["RH3_SN_MEDFLUX"] = rh3_sn_diag.median_flux
+        table["BL_SN_MEDUNC"] = bl_sn_diag.median_uncertainty
+        table["RH3_SN_MEDUNC"] = rh3_sn_diag.median_uncertainty
+        table["BL_SN_MINUNC"] = bl_sn_diag.min_uncertainty
+        table["RH3_SN_MINUNC"] = rh3_sn_diag.min_uncertainty
+        table["BL_SN_NCHAN"] = bl_sn_diag.n_good_channels
+        table["RH3_SN_NCHAN"] = rh3_sn_diag.n_good_channels
+        table["BL_NEGFLUX_FRAC"] = bl_sn_diag.negative_flux_fraction
+        table["RH3_NEGFLUX_FRAC"] = rh3_sn_diag.negative_flux_fraction
         table["POWERBIN_SN"] = np.sqrt(np.clip(pb.bin_capacity, 0.0, None))
         table["POWERBIN_CAPACITY"] = pb.bin_capacity
         table["RH3_PIXEL_COVERAGE"] = rh3_coverage
@@ -677,6 +787,13 @@ def main() -> int:
             "bl_target_sn": float(cfg.BL_TARGET_SN),
             "bl_window_observed_angstrom": [bl_window.observed_min, bl_window.observed_max],
             "rh3_window_observed_angstrom": [rh3_window.observed_min, rh3_window.observed_max],
+            "bin_sn_estimator": "median(flux) / median(uncertainty)",
+            "bin_sn_require_positive_continuum": bool(cfg.BIN_SN_REQUIRE_POSITIVE_CONTINUUM),
+            "bin_sn_min_good_channels": int(cfg.BIN_SN_MIN_GOOD_CHANNELS),
+            "n_bl_valid_positive_sn": int(np.sum(np.isfinite(bl_sn))),
+            "n_rh3_valid_positive_sn": int(np.sum(np.isfinite(rh3_sn))),
+            "n_bl_nonpositive_continuum": int(np.sum(~bl_sn_diag.positive_continuum & (bl_sn_diag.n_good_channels >= int(cfg.BIN_SN_MIN_GOOD_CHANNELS)))),
+            "n_rh3_nonpositive_continuum": int(np.sum(~rh3_sn_diag.positive_continuum & (rh3_sn_diag.n_good_channels >= int(cfg.BIN_SN_MIN_GOOD_CHANNELS)))),
             "powerbin_spatial_covariance_mode": cov_mode,
             "powerbin_spatial_covariance_alpha": cov_alpha,
             "rh3_transfer_assigned_fraction": float(transfer.assigned_fraction),

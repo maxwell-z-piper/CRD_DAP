@@ -59,6 +59,7 @@ def main() -> int:
             "run_powerbin",
             "transfer_bin_map_by_wcs",
             "coadd_bin_spectra",
+            "achieved_sn_diagnostics_per_bin",
             "achieved_sn_per_bin",
             "normalized_flux_weights",
             "bin_centroids",
@@ -98,6 +99,10 @@ def main() -> int:
         "POWERBIN_SPATIAL_COVARIANCE_MODE",
         "BIN_TRANSFER_MAX_DISTANCE_ARCSEC",
         "BIN_SPECTRUM_MIN_MEMBER_FRACTION",
+        "BIN_SN_MIN_GOOD_CHANNELS",
+        "BIN_SN_REQUIRE_POSITIVE_CONTINUUM",
+        "BIN_SN_EXTREME_ABS_WARNING",
+        "BIN_SN_ESTIMATOR_DISAGREEMENT_FACTOR",
     ]
     for key in required_cfg:
         if not hasattr(cfg, key):
