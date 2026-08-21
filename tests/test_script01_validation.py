@@ -53,7 +53,64 @@ def test_arc_science_grating_mismatch_is_rejected():
     science = _kcwi_header(camera="RED", grating="RH3", ofname="kr00100.fits")
     arc = _kcwi_header(camera="RED", grating="RL", ofname="kr00025.fits")
     with pytest.raises(ValueError, match="grating"):
-        validate_arc_science_configuration(science, arc, arm="RH3")
+        validate_arc_science_configuration(
+            science,
+            arc,
+            arm="RH3",
+            expected_grating="RH3",
+        )
+
+
+def test_configurable_red_grating_allows_matching_rl_science_and_arc():
+    """RL is valid for Script-1 testing when it is explicitly requested."""
+    science = _kcwi_header(camera="RED", grating="RL", ofname="kr00171.fits")
+    arc = _kcwi_header(camera="RED", grating="RL", ofname="kr00025.fits")
+
+    result = validate_arc_science_configuration(
+        science,
+        arc,
+        arm="RH3",
+        expected_grating="RL",
+    )
+
+    assert result.expected_grating == "RL"
+    assert result.science_grating == "RL"
+    assert result.arc_grating == "RL"
+    assert result.science_camera == "RED"
+    assert result.arc_camera == "RED"
+
+
+def test_configurable_blue_grating_allows_matching_non_bl_science_and_arc():
+    """The blue stream is configurable too; it is not hard-coded to BL."""
+    science = _kcwi_header(camera="BLUE", grating="BM", ofname="kb00118.fits")
+    arc = _kcwi_header(camera="BLUE", grating="BM", ofname="kb00021.fits")
+
+    result = validate_arc_science_configuration(
+        science,
+        arc,
+        arm="BL",
+        expected_grating="BM",
+    )
+
+    assert result.expected_grating == "BM"
+    assert result.science_grating == "BM"
+    assert result.arc_grating == "BM"
+    assert result.science_camera == "BLUE"
+    assert result.arc_camera == "BLUE"
+
+
+def test_configured_expected_grating_is_still_a_hard_requirement():
+    """Configurability must not become an ignore-mismatch switch."""
+    science = _kcwi_header(camera="RED", grating="RL", ofname="kr00171.fits")
+    arc = _kcwi_header(camera="RED", grating="RL", ofname="kr00025.fits")
+
+    with pytest.raises(ValueError, match="RH3_EXPECTED_GRATING"):
+        validate_arc_science_configuration(
+            science,
+            arc,
+            arm="RH3",
+            expected_grating="RH3",
+        )
 
 
 def test_sidecar_discovery_can_use_ofname_when_exposure_number_differs(tmp_path: Path):
