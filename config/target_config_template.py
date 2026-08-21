@@ -32,12 +32,33 @@ REDSHIFT = None  # dimensionless; required
 # =============================================================================
 # 2. REQUIRED INPUT PATHS
 # =============================================================================
-# The pipeline is intentionally explicit about calibration inputs. The master
-# arcs are required because the adopted analysis measures the instrumental LSF
-# empirically rather than relying only on nominal resolving power.
+# Production CRD_DAP science cubes are expected to come from KcwiKit post-DRP
+# stacking. KcwiKit writes four matched single-HDU cubes per arm:
+#
+#   *_icubes.fits  science flux
+#   *_vcubes.fits  variance (NOT 1-sigma uncertainty)
+#   *_mcubes.fits  final binary stack mask; 0=valid contribution, 1=no valid data
+#   *_ecubes.fits  effective exposure time in seconds
+#
+# Keep these products together and never substitute one arm's companion cube
+# for another. Script 1 verifies that all four files have identical shape and
+# spatial/spectral WCS before using them.
+SCIENCE_INPUT_FORMAT = "kcwikit"  # supported: "kcwikit" (production), "drp" (legacy/testing)
 
-BL_CUBE = Path("/path/to/stacked_BL_icubew.fits")
-RH3_CUBE = Path("/path/to/stacked_RH3_icubew.fits")
+BL_ICUBE = Path("/path/to/target_blue_icubes.fits")
+BL_VCUBE = Path("/path/to/target_blue_vcubes.fits")
+BL_MCUBE = Path("/path/to/target_blue_mcubes.fits")
+BL_ECUBE = Path("/path/to/target_blue_ecubes.fits")
+
+RH3_ICUBE = Path("/path/to/target_rh3_icubes.fits")
+RH3_VCUBE = Path("/path/to/target_rh3_vcubes.fits")
+RH3_MCUBE = Path("/path/to/target_rh3_mcubes.fits")
+RH3_ECUBE = Path("/path/to/target_rh3_ecubes.fits")
+
+# Optional legacy/native-DRP input mode. These are ignored when
+# SCIENCE_INPUT_FORMAT="kcwikit". A DRP cube must contain an UNCERT extension.
+BL_CUBE = Path("/path/to/stacked_or_single_BL_icubew.fits")
+RH3_CUBE = Path("/path/to/stacked_or_single_RH3_icubew.fits")
 
 BL_MASTER_ARC = Path("/path/to/BL_master_arc.fits")
 RH3_MASTER_ARC = Path("/path/to/RH3_master_arc.fits")
@@ -166,8 +187,18 @@ PSF_HEADER_KEYS = ("SEEING", "FWHM", "GUIDFWHM")
 # 8. SCRIPT 1: DATA-QUALITY / NOISE SETTINGS
 # =============================================================================
 
+# KcwiKit stacks are stored as float64 by default and can be several GB per
+# BL+RH3 dataset. Script 1 uses float32 in memory/prepared products by default to
+# keep the full two-arm preparation practical on a workstation. Extracted 1-D
+# spectra may later be promoted to float64 for pPXF. Set to "float64" if desired.
+STACK_FLOAT_DTYPE = "float32"
+
 MIN_GOOD_WAVELENGTH_FRACTION = 0.80
 BAD_CHANNEL_FRACTION_THRESHOLD = 0.50
+
+# This switch applies only to native DRP multi-extension input. KcwiKit already
+# used the original PyDRP FLAGS while constructing its stack and the final
+# mcubes file is a binary validity/coverage mask rather than the original bitmask.
 REJECT_ANY_NONZERO_DRP_FLAG = True
 
 # Continuum-center and registration diagnostics. The BL continuum peak is the
