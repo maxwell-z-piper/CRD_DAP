@@ -146,6 +146,15 @@ LSF_MODE = "master_arc"  # baseline production mode
 LSF_MODEL_WAVELENGTH_ORDER = 2
 LSF_MEASURE_SPATIAL_VARIATION = True
 
+# Expected grating in each pipeline data stream. The stream labels remain BL and
+# RH3 because downstream science products are organized around the intended
+# BL+RH3 experiment, but Script 1 can validate other setups without disabling
+# calibration checks. For normal production observations leave these at BL/RH3.
+# For an integration test using, e.g., an RL red cube and matching RL master arc,
+# set RH3_EXPECTED_GRATING = "RL" in that target's config only.
+BL_EXPECTED_GRATING = "BL"
+RH3_EXPECTED_GRATING = "RH3"
+
 # KCWI DRP writes *_wavemap.fits, *_slicemap.fits, and *_posmap.fits geometry
 # products associated with the master-arc wavelength solution. Leave these as
 # None to let Script 1 discover them automatically. Discovery first tries the
