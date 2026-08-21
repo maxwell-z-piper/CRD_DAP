@@ -11,6 +11,8 @@ conda create -n crd_dap python=3.12
 conda activate crd_dap
 ```
 
+Within this environment, upgrade pip and install all the necessary packages. Then, run the pytest command to ensure everything is installed correctly.
+
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -e ".[science,dev]"
