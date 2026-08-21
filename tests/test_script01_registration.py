@@ -38,3 +38,46 @@ def test_effective_exposure_plotter_is_available():
     # Regression test for the Script-1 QC merge that accidentally dropped this
     # pre-existing plotting helper.
     assert callable(plotting.plot_effective_exposure)
+
+
+
+def test_registration_plot_inconclusive_uses_overlap_panel(tmp_path):
+    yy, xx = np.indices((40, 50), dtype=float)
+    reference = np.exp(-0.5 * (((xx - 25.0) / 4.0) ** 2 + ((yy - 20.0) / 4.0) ** 2))
+    moving = np.exp(-0.5 * (((xx - 25.5) / 4.0) ** 2 + ((yy - 20.0) / 4.0) ** 2))
+    overlap = np.ones_like(reference, dtype=bool)
+    overlap[:, :3] = False
+    difference = np.full_like(reference, np.nan)
+
+    out = plotting.plot_registration(
+        reference,
+        moving,
+        difference,
+        tmp_path / "registration_inconclusive.png",
+        overlap=overlap,
+        cross_correlation_valid=False,
+        status_reason="test inconclusive",
+        wavelength_label="common observed wavelength 5567--5674 A",
+    )
+    assert out.exists()
+    assert out.stat().st_size > 0
+
+
+def test_registration_plot_valid_difference_is_written(tmp_path):
+    yy, xx = np.indices((40, 50), dtype=float)
+    reference = np.exp(-0.5 * (((xx - 25.0) / 4.0) ** 2 + ((yy - 20.0) / 4.0) ** 2))
+    moving = np.exp(-0.5 * (((xx - 25.2) / 4.0) ** 2 + ((yy - 20.1) / 4.0) ** 2))
+    overlap = np.ones_like(reference, dtype=bool)
+    difference = reference - moving
+
+    out = plotting.plot_registration(
+        reference,
+        moving,
+        difference,
+        tmp_path / "registration_valid.png",
+        overlap=overlap,
+        cross_correlation_valid=True,
+        residual_shift_arcsec=(0.03, -0.02),
+    )
+    assert out.exists()
+    assert out.stat().st_size > 0

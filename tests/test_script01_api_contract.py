@@ -40,6 +40,13 @@ def test_registration_api_accepts_local_search_radius():
     assert "contrast_smooth_sigma_pix" in sig.parameters
 
 
+def test_registration_plot_api_accepts_overlap_mask():
+    # Script 1 passes the WCS-derived common footprint so the diagnostic can
+    # suppress non-overlap/edge pixels without modifying the science arrays.
+    sig = inspect.signature(plotting.plot_registration)
+    assert "overlap" in sig.parameters
+
+
 def test_script1_io_api_is_complete():
     required = {
         "inspect_fits_extensions",
