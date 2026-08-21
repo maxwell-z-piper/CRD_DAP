@@ -375,6 +375,20 @@ $$
 
 The achieved RH3 S/N is measured but never drives the bin boundaries.
 
+### Achieved-S/N estimator and pathology handling
+
+The final extracted-spectrum S/N is a QC/reporting statistic, not the PowerBin capacity itself. For each bin and configured continuum window, Script 2 now defines the robust signed diagnostic
+
+$$
+(S/N)_{i,\mathrm{signed}} = rac{\mathrm{median}[F_i(\lambda)]}{\mathrm{median}[\sigma_i(\lambda)]}.
+$$
+
+This ratio-of-medians is less sensitive than the former $\mathrm{median}[F_i(\lambda)/\sigma_i(\lambda)]$ estimator to isolated wavelength samples with spuriously tiny formal uncertainties. The older estimator is still saved in the per-bin table as an audit diagnostic.
+
+A non-positive median continuum does not represent a meaningful positive achieved S/N. When `BIN_SN_REQUIRE_POSITIVE_CONTINUUM=True`, the production-facing `BL_SN`/`RH3_SN` value is therefore saved as `NaN` for such a bin, while the signed value, legacy estimator, median flux, median uncertainty, minimum uncertainty, negative-flux fraction, and number of good channels remain explicitly saved. No flux or variance is clipped or rescaled by this rule.
+
+Extreme signed values and large disagreement between the robust and legacy estimators generate quality flags and should trigger inspection with `scripts/inspect_script02_sn.py`.
+
 ## 5.5 Geometric aperture spectra and formal uncertainties
 
 Spatial extraction is a **geometric sum**, not an inverse-variance-weighted spatial average. This preserves the actual light mixture that later bin-integrated disk models must predict.
@@ -411,7 +425,7 @@ The authoritative Script-2 products include:
 
 - `master_bins.fits`: BL master membership, analysis aperture, per-bin BL/RH3 S/N maps, area map, transferred RH3 membership, and WCS-transfer distance;
 - `master_bin_spectra.fits`: wavelength, aperture-summed flux, formal uncertainty, valid-sample mask, and number of contributing spaxels for both arms, plus preliminary Script-1 spectral-correlation sequences when available;
-- `master_bin_table.ecsv`: one row per bin with member counts, area, geometric/flux centroids, sky position, BL/RH3 S/N, PowerBin capacity, RH3 transfer coverage, and single-pixel status;
+- `master_bin_table.ecsv`: one row per bin with member counts, area, geometric/flux centroids, sky position, robust positive-continuum BL/RH3 S/N, signed/legacy S/N audit diagnostics, continuum/uncertainty summaries, PowerBin capacity, RH3 transfer coverage, and single-pixel status;
 - `master_bin_membership.npz`: complete BL and RH3 native pixel membership, tangent-plane coordinates, continuum-light weights, transfer distances, and PowerBin generator information;
 - `script02_manifest.json`: source Script-1 run, configuration/provenance, covariance assumptions, transfer completeness, quality flags, and product paths.
 
@@ -434,6 +448,9 @@ Important non-fatal flags include:
 - `SPATIAL_COVARIANCE_UNCALIBRATED`: the current PowerBin capacity uses formal diagonal spatial variance because no empirical spatial covariance law has yet been validated;
 - `BIN_TRANSFER_INCOMPLETE`: fewer red/RH3 pixels than expected could be assigned to the BL-defined physical apertures;
 - `LOW_BL_BIN_SN`: the measured S/N of one or more final BL spectra falls substantially below the configured target despite the PowerBin proxy;
+- `NONPOSITIVE_BIN_CONTINUUM`: one or more configured S/N windows have non-positive median continuum, so a positive achieved-S/N value is undefined for those bins;
+- `EXTREME_BIN_SN_DIAGNOSTIC`: a signed robust or legacy S/N diagnostic exceeds the configured numerical warning threshold;
+- `BIN_SN_ESTIMATOR_DISAGREEMENT`: the robust ratio-of-medians and legacy median-of-ratios disagree by more than the configured factor;
 - `BINNING_APERTURE_WARNING`: the useful-stellar-body aperture requires manual inspection.
 
 A flag is not an instruction to tune parameters until the warning disappears. It records where a scientific assumption or data limitation must be inspected.

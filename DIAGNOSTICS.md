@@ -509,15 +509,19 @@ Do not independently re-PowerBin RH3 to make the plot look cleaner. Resolve the 
 
 ### Purpose
 
-Maps the measured median continuum S/N per spectral pixel for each final extracted spectrum. BL uses the configured BL binning/fitting window; RH3 uses its independently configured S/N-evaluation window but the **same BL-defined physical bins**.
+Maps the robust achieved continuum S/N per spectral pixel for each final extracted spectrum. The plotted value is `median(flux) / median(uncertainty)` over the configured window and is shown only when the median continuum is positive. BL uses the configured BL binning/fitting window; RH3 uses its independently configured S/N-evaluation window but the **same BL-defined physical bins**.
 
 ### Healthy result
 
-Most non-single BL bins lie near the target S/N, while single high-surface-brightness pixels may exceed it. RH3 S/N may differ substantially because it does not drive the tessellation.
+Most non-single BL bins lie near the target S/N, while single high-surface-brightness pixels may exceed it. RH3 S/N may differ substantially because it does not drive the tessellation. White/blank bins can legitimately indicate non-positive median continuum or too few valid channels rather than a plotting failure.
 
 ### Warning signs
 
-A large population of BL bins far below the target can indicate a mismatch between the PowerBin S/N proxy and the final extracted-spectrum measurement, poor wavelength coverage, or unmodeled spatial covariance.
+A large population of BL bins far below the target can indicate a mismatch between the PowerBin S/N proxy and the final extracted-spectrum measurement, poor wavelength coverage, or unmodeled spatial covariance. A bin with an enormous signed or legacy S/N should be inspected with `scripts/inspect_script02_sn.py`; the production-facing map does not clip the spectrum but treats non-positive continuum as undefined positive S/N.
+
+### Numerical companions
+
+`master_bin_table.ecsv` preserves `BL_SN_SIGNED`, `RH3_SN_SIGNED`, `BL_SN_LEGACY`, `RH3_SN_LEGACY`, median continuum flux, median/minimum uncertainty, negative-flux fraction, and valid-channel counts. These columns are the first place to look when an achieved-S/N value appears pathological.
 
 ---
 
@@ -550,6 +554,25 @@ Values above the 95th percentile saturate visually but remain numerically preser
 ### Interpretation
 
 Equivalent colors mean equivalent S/N. This makes it immediately obvious whether the red/RH3 spectra have enough information in the BL-defined apertures and prevents independent autoscaling from hiding cross-arm differences.
+
+---
+
+## `RH3_SN_pathology_bin####_flux.png` / `_uncertainty.png` / `_ratio.png`
+
+**Script:** `inspect_script02_sn.py`
+**Class:** targeted QC/debugging
+
+### Purpose
+
+These files are generated only when the standalone Script-2 S/N inspection utility is run. They display the coadded flux, formal uncertainty, and sample-by-sample $F/\sigma$ values for the most negative legacy RH3 S/N bin in the configured window.
+
+### Interpretation
+
+If the continuum itself is negative while the uncertainty is ordinary, the correct conclusion is that the bin has no positive continuum detection in that window. If the legacy median-of-ratios is enormous while the robust ratio-of-medians is modest, unusually small formal-uncertainty samples were dominating the old estimator. If both are enormous, inspect the formal variance and wavelength-window placement before trusting the S/N diagnostic. The utility never edits the science products.
+
+### Numerical companion
+
+`products/RH3_SN_diagnostic_report.ecsv` contains the old table value, robust achieved S/N, signed robust S/N, legacy median-of-ratios, median flux, median/minimum/5th-percentile uncertainty, negative-flux fraction, and valid-channel count for every bin.
 
 ---
 
