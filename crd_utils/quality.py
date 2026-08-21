@@ -69,30 +69,6 @@ FLAG_DEFINITIONS = {
         "WAVELENGTH_CONVENTION_ERROR",
         "Science and template wavelength conventions or velocity frames are incompatible.",
     ),
-    "CENTER_DISAGREEMENT": QualityFlagDefinition(
-        "CENTER_DISAGREEMENT",
-        "Independent continuum center estimates disagree by more than the configured tolerance.",
-    ),
-    "REGISTRATION_OFFSET_WARNING": QualityFlagDefinition(
-        "REGISTRATION_OFFSET_WARNING",
-        "Residual BL/RH3 cross-correlation shift after WCS reprojection exceeds the configured tolerance.",
-    ),
-    "PSF_NOT_MEASURED": QualityFlagDefinition(
-        "PSF_NOT_MEASURED",
-        "No explicit or header-based PSF FWHM was available for this arm; a valid PSF must be supplied before PSF-dependent modeling.",
-    ),
-    "LSF_SPATIAL_VARIATION": QualityFlagDefinition(
-        "LSF_SPATIAL_VARIATION",
-        "Master-arc line widths show spatial/slice variation larger than the configured fractional tolerance.",
-    ),
-    "NOISE_SCALE_WARNING": QualityFlagDefinition(
-        "NOISE_SCALE_WARNING",
-        "Preliminary normalized residuals imply a variance scale materially different from unity; final likelihood work requires follow-up noise calibration.",
-    ),
-    "SPECTRAL_COVARIANCE_WARNING": QualityFlagDefinition(
-        "SPECTRAL_COVARIANCE_WARNING",
-        "Preliminary high-pass residuals show non-negligible wavelength-pixel correlation that must be revisited with pPXF residuals.",
-    ),
 }
 
 

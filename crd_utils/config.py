@@ -191,6 +191,15 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
         raise ValueError("REGISTRATION_MIN_CONTRAST_SNR must be positive.")
     if float(getattr(cfg, "REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX", 1.0)) < 0:
         raise ValueError("REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX cannot be negative.")
+    max_reg = float(getattr(cfg, "REGISTRATION_MAX_RESIDUAL_SHIFT_ARCSEC", 2.0))
+    if max_reg <= 0:
+        raise ValueError("REGISTRATION_MAX_RESIDUAL_SHIFT_ARCSEC must be positive.")
+    warn_reg = float(getattr(cfg, "REGISTRATION_WARNING_ARCSEC", 0.25))
+    if max_reg <= warn_reg:
+        raise ValueError(
+            "REGISTRATION_MAX_RESIDUAL_SHIFT_ARCSEC must exceed "
+            "REGISTRATION_WARNING_ARCSEC."
+        )
     if float(getattr(cfg, "LSF_EDGE_EXTRAPOLATION_WARNING_ANGSTROM", 100.0)) < 0:
         raise ValueError("LSF_EDGE_EXTRAPOLATION_WARNING_ANGSTROM cannot be negative.")
 
