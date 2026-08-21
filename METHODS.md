@@ -125,13 +125,22 @@ A new diagnostic is not considered finished until its `DIAGNOSTICS.md` entry exi
 
 ## 4.1 Inputs
 
-- stacked BL science cube;
-- stacked RH3 science cube;
+The production science input for each arm is the four-file KcwiKit post-DRP stack:
+
+- `*_icubes.fits` — stacked science flux;
+- `*_vcubes.fits` — stacked variance;
+- `*_mcubes.fits` — final binary stack mask;
+- `*_ecubes.fits` — effective exposure time in seconds.
+
+Script 1 therefore requires the four BL stack files and the four RH3 stack files, plus:
+
 - BL master arc;
 - RH3 master arc;
 - configuration metadata.
 
-The science cubes are assumed to have already passed through the KCWI DRP. Script 1 is science preparation, not detector-level reduction.
+The science cubes are assumed to have already passed through the KCWI DRP and KcwiKit stacking. Script 1 is science preparation, not detector-level reduction or cube stacking. A native DRP multi-extension cube remains supported for legacy/testing use, but is not the production stacked-data path.
+
+KcwiKit's current stacking implementation uses the original PyDRP `FLAGS` cube to reject invalid contributing samples. The final stacked `mcubes` product is then binary: zero means valid contributing exposure exists and one means no valid contribution. The original bit-level DRP flag values therefore cannot be reconstructed from the final stack and CRD_DAP does not attempt to invent them.
 
 ## 4.2 Internal cube representation
 
@@ -141,28 +150,35 @@ $$
 F(x,y,\lambda),
 $$
 
-an uncertainty or variance cube,
+variance and 1-sigma uncertainty,
 
 $$
-\sigma_F(x,y,\lambda),
+\mathrm{Var}_F(x,y,\lambda),\qquad \sigma_F(x,y,\lambda)=\sqrt{\mathrm{Var}_F(x,y,\lambda)},
 $$
 
-quality/mask information, wavelength coordinates, spatial WCS, spectral resolution metadata, and relevant reduction-frame metadata.
+effective exposure time,
 
-Downstream scripts should not need to know raw FITS extension names.
+$$
+E(x,y,\lambda),
+$$
 
-For production analysis, a stacked science cube must preserve a propagated `UNCERT` product. `MASK`, `FLAGS`, and `NOSKYSUB` should also be retained whenever available. A hand-stacked flux-only cube may still be useful for visual or structural testing, but it is not a valid input to the profile-likelihood analysis because the absolute $\chi^2$ scale would be undefined.
+quality/mask information, wavelength coordinates, spatial WCS, spectral-resolution metadata, and relevant reduction/stacking metadata.
+
+Downstream scripts should not need to know KcwiKit filenames, FITS-axis ordering, or the distinction between variance and standard deviation. Script 1 validates that the four companion cubes in each arm have identical array shapes and identical spatial/spectral WCS before combining them into the internal data model.
+
+The KcwiKit stacks used during development are stored as 64-bit floating-point arrays and can be several GB across both arms. The production default is therefore to load/write prepared large cubes as float32 for practical memory use, while allowing extracted spectra to be promoted to float64 for pPXF. This choice is configurable rather than hidden.
 
 ## 4.3 Hard bad-pixel / bad-spaxel treatment
 
-A spectral sample is unusable when, for example:
+A KcwiKit spectral sample is unusable when, for example:
 
-- the DRP quality information marks it invalid;
+- the final stacked mask is non-zero;
+- the effective exposure is zero or non-finite;
 - the flux is non-finite;
-- the uncertainty is non-finite or non-positive;
+- the variance is non-finite or non-positive;
 - it lies outside the instrumentally valid wavelength range.
 
-The exact DRP flag interpretation will be implemented after inspecting real products.
+The requested KcwiKit output grid can intentionally be larger than the illuminated IFU footprint. Zero-exposure padding must not count as a population of "bad spaxels" when deciding whether an entire wavelength channel is globally unusable. Script 1 therefore computes wavelength-level bad-sample fractions only over the spatial footprint with real wavelength coverage, while the zero-exposure padding remains excluded from every downstream science mask.
 
 A spatial spaxel may be excluded if the fraction of usable wavelength samples falls below the configurable threshold. **Low S/N by itself is not a reason to reject a spaxel**; Script 2 uses PowerBin to combine low-S/N spatial information.
 
@@ -178,7 +194,7 @@ Scientifically valid wavelengths should not be permanently discarded in Script 1
 
 ## 4.5 Wavelength conventions
 
-Air/vacuum wavelength conventions and the adopted heliocentric/barycentric frame must be known explicitly. The preferred Script-1 configuration is `auto`, meaning that CRD_DAP reads the convention from explicit KCWI DRP metadata and hard-fails if the header is ambiguous. In the real DRP products used to validate Script 1, the wavelength medium is encoded by the spectral `CTYPE`/comment and the applied radial-velocity correction is recorded by `VCORRTYP`. An explicit config value is still allowed, but it is cross-checked against the header rather than blindly trusted.
+Air/vacuum wavelength conventions and the adopted heliocentric/barycentric frame must be known explicitly. The pipeline must hard-fail rather than proceed with science and template wavelengths in inconsistent conventions.
 
 A convention mismatch can mimic a velocity zero-point error and would contaminate both the RH3 likelihood surfaces and the inferred systemic velocity.
 
@@ -233,9 +249,7 @@ The RH3 PSF will also define the default XookSuut-style radial node spacing.
 
 ## 4.10 Empirical LSF from master arcs
 
-The primary LSF comes from unresolved lines in the required master-arc products. The master arc is used together with its DRP `wavemap`, `slicemap`, and `posmap` geometry products. Script 1 first attempts conventional filename-root discovery, but also supports FITS-header provenance matching because real RED reductions can assign the geometry maps a different exposure number from the `*_marc.fits` filename. Explicit sidecar paths remain available in the target configuration.
-
-Before any LSF is accepted, the master arc must match the science cube in camera, arm-specific grating, slicer/IFU, detector binning, and central wavelength. This prevents a different RED grating calibration (for example RL) from being used accidentally for RH3 merely because both are red-side products.
+The primary LSF comes from unresolved lines in the required master-arc products.
 
 Aim to estimate
 

@@ -184,7 +184,52 @@ Large contiguous missing regions, slice-like patterns, or a surprising number of
 
 ### Action
 
-Inspect DRP mask interpretation and `MIN_GOOD_WAVELENGTH_FRACTION` before PowerBin.
+Inspect the KcwiKit stack mask, effective-exposure coverage, variance validity, and `MIN_GOOD_WAVELENGTH_FRACTION` before PowerBin. Zero-exposure output-grid padding should be excluded rather than interpreted as low-S/N galaxy data.
+
+---
+
+## `BL_effective_exposure.png` / `RH3_effective_exposure.png`
+
+**Script:** 01  
+**Helper:** `plot_effective_exposure()`  
+**Class:** critical stacking/coverage QC
+
+### Purpose
+
+Shows which parts of the requested KcwiKit output grid contain actual contributing science exposure and how consistently each spatial location is covered across the instrument-good wavelength range. This directly separates real low-surface-brightness galaxy data from empty padding created because the requested stack dimensions were intentionally generous.
+
+### Panels
+
+1. median KcwiKit effective exposure over Script-1 good wavelengths, in seconds;
+2. fraction of instrument-good wavelengths with positive effective exposure, from 0 to 1.
+
+### Inputs
+
+- KcwiKit `*_ecubes.fits`;
+- Script-1 instrument/global-good wavelength mask;
+- the per-spaxel wavelength-coverage fraction saved with the prepared cube.
+
+### Healthy result
+
+The illuminated KCWI footprint is spatially coherent, central/overlap regions have the expected high effective exposure, partially covered dither edges are visible as lower exposure/coverage, and the deliberately oversized output-grid padding is exactly zero.
+
+### Warning signs
+
+- non-zero effective exposure far outside the plausible IFU footprint;
+- holes with zero exposure through the bright central galaxy;
+- BL and RH3 footprints grossly inconsistent with the observations;
+- large areas with only tiny wavelength-coverage fractions that would otherwise be mistaken for usable low-S/N data.
+
+### Action
+
+Inspect the KcwiKit stack, input trimming, alignment, mask handling, and output-grid definition. Do not proceed to PowerBin until zero-exposure padding and genuinely covered spaxels are cleanly distinguished.
+
+### Numerical/log companions
+
+- `EXPOSURE` extension in `prepared_BL.fits` / `prepared_RH3.fits`;
+- `COVFRAC` extension;
+- effective-exposure summary in `script01_manifest.json`;
+- positive-exposure sample fraction and minimum/median/maximum positive exposure in `pipeline.log`.
 
 ---
 
@@ -195,7 +240,7 @@ Inspect DRP mask interpretation and `MIN_GOOD_WAVELENGTH_FRACTION` before PowerB
 
 ### Purpose
 
-Shows, as a function of wavelength, the fraction of spatial samples flagged unusable. This distinguishes isolated bad spaxels from wavelength channels that are globally problematic.
+Shows, as a function of wavelength, the fraction of spatial samples flagged unusable **within the real covered spatial footprint**. Zero-exposure padding outside the KcwiKit footprint is excluded from this denominator. This distinguishes isolated bad spaxels from wavelength channels that are globally problematic without allowing an oversized stack canvas to make every channel look bad.
 
 ### Axes
 
@@ -221,7 +266,7 @@ Broad sections with unexpectedly high rejection fraction or sharp features coinc
 
 ### Purpose
 
-Documents the empirical instrumental LSF measured from the required master arc and its DRP wavelength/slice/position geometry maps. Before this figure is produced, Script 1 verifies that the calibration matches the science cube in camera, grating, slicer/IFU, binning, and central wavelength. Geometry-map discovery is also checked through FITS provenance rather than relying only on filename exposure numbers.
+Documents the empirical instrumental LSF measured from the required master arc.
 
 ### Quantity
 
@@ -262,7 +307,7 @@ FWHM residual relative to the wavelength-only mean/model versus slice or spatial
 
 ### Healthy result
 
-Variation is small relative to the precision required for $\sigma_A,\sigma_B$. The plotted spatial metric should describe coherent slice/position offsets from the global wavelength-only LSF model, not simply the raw RMS of every individual arc-line residual. The latter is saved separately because it also contains line-fitting scatter.
+Variation is small relative to the precision required for $\sigma_A,\sigma_B$.
 
 ### Warning sign
 
