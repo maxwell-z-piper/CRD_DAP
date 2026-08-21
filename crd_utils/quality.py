@@ -69,6 +69,22 @@ FLAG_DEFINITIONS = {
         "WAVELENGTH_CONVENTION_ERROR",
         "Science and template wavelength conventions or velocity frames are incompatible.",
     ),
+    "BINNING_APERTURE_WARNING": QualityFlagDefinition(
+        "BINNING_APERTURE_WARNING",
+        "The automatically detected stellar-body aperture is unusually small or requires manual scientific inspection before accepting the PowerBin tessellation.",
+    ),
+    "BIN_TRANSFER_INCOMPLETE": QualityFlagDefinition(
+        "BIN_TRANSFER_INCOMPLETE",
+        "The red/RH3 native grid does not recover the configured fraction of BL-defined physical bin membership through the celestial WCS transfer.",
+    ),
+    "LOW_BL_BIN_SN": QualityFlagDefinition(
+        "LOW_BL_BIN_SN",
+        "One or more final BL PowerBins have measured continuum S/N substantially below the configured target despite the PowerBin capacity target.",
+    ),
+    "SPATIAL_COVARIANCE_UNCALIBRATED": QualityFlagDefinition(
+        "SPATIAL_COVARIANCE_UNCALIBRATED",
+        "PowerBin capacities and formal coadded uncertainties currently use diagonal spatial variance because no validated KcwiKit spatial covariance law has been supplied.",
+    ),
 }
 
 

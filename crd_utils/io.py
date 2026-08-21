@@ -769,6 +769,125 @@ def load_kcwi_cube(
     )
 
 
+
+def load_prepared_cube(path: str | Path, *, expected_arm: str | None = None) -> KCWICube:
+    """Load a standardized Script-1 ``prepared_*.fits`` product.
+
+    Downstream stages must use the exact hard-good sample/spaxel/wavelength masks
+    written by Script 1 rather than reconstructing them from the original DRP
+    extensions.  This loader therefore requires ``GOODMASK``, ``GOODSPAX``,
+    ``GOODWAVE``, and ``WAVELENGTH`` and preserves the original celestial WCS.
+
+    Parameters
+    ----------
+    path
+        Script-1 prepared FITS file.
+    expected_arm
+        Optional arm label (normally ``"BL"`` or ``"RH3"``) that is checked
+        against the ``CRDARM`` provenance keyword.
+    """
+    source = Path(path).expanduser().resolve()
+    if not source.exists():
+        raise FileNotFoundError(f"Prepared cube does not exist: {source}")
+
+    with fits.open(source, memmap=True) as hdul:
+        primary = np.asarray(hdul[0].data)
+        header = hdul[0].header.copy()
+        if primary.ndim != 3:
+            raise ValueError(f"Prepared KCWI cube must be 3-D; got {primary.shape} from {source}")
+        if int(header.get("CRDSTEP", -1)) != 1:
+            raise ValueError(
+                f"{source} is not marked as a CRD_DAP Script-1 prepared cube (CRDSTEP=1 required)"
+            )
+
+        arm = str(header.get("CRDARM", "")).strip()
+        if expected_arm is not None and arm.upper() != str(expected_arm).upper():
+            raise ValueError(
+                f"Prepared cube {source} reports CRDARM={arm!r}, expected {expected_arm!r}"
+            )
+
+        required = ("UNCERT", "GOODMASK", "GOODSPAX", "GOODWAVE", "WAVELENGTH")
+        missing = [name for name in required if name not in hdul]
+        if missing:
+            raise ValueError(
+                f"Prepared cube {source} is missing required extension(s): {', '.join(missing)}"
+            )
+
+        uncert_native = np.asarray(hdul["UNCERT"].data)
+        good_native = np.asarray(hdul["GOODMASK"].data)
+        good_spaxel = np.asarray(hdul["GOODSPAX"].data).astype(bool)
+        good_fraction = np.asarray(hdul["GOODFRAC"].data, dtype=float) if "GOODFRAC" in hdul else good_spaxel.astype(float)
+        coverage_fraction = (
+            np.asarray(hdul["COVFRAC"].data, dtype=float) if "COVFRAC" in hdul else None
+        )
+        good_wave = np.asarray(hdul["GOODWAVE"].data).astype(bool).ravel()
+        wavelength = np.asarray(hdul["WAVELENGTH"].data, dtype=float).ravel()
+        mask_native = np.asarray(hdul["MASK"].data) if "MASK" in hdul else np.zeros_like(primary, dtype=np.uint8)
+        flags_native = np.asarray(hdul["FLAGS"].data) if "FLAGS" in hdul else None
+        exposure_native = np.asarray(hdul["EXPOSURE"].data) if "EXPOSURE" in hdul else None
+        nosky_native = np.asarray(hdul["NOSKYSUB"].data) if "NOSKYSUB" in hdul else None
+
+    fits_spec_axis = _find_spectral_fits_axis(header, primary.ndim)
+    np_spec_axis = _numpy_axis_from_fits_axis(fits_spec_axis, primary.ndim)
+    flux = np.asarray(_canonicalize(primary, np_spec_axis), dtype=float)
+    uncertainty = np.asarray(_canonicalize(uncert_native, np_spec_axis), dtype=float)
+    good = np.asarray(_canonicalize(good_native, np_spec_axis), dtype=bool)
+    drp_mask = np.asarray(_canonicalize(mask_native, np_spec_axis), dtype=bool)
+    flags = None if flags_native is None else _canonicalize(flags_native, np_spec_axis)
+    exposure = None if exposure_native is None else np.asarray(_canonicalize(exposure_native, np_spec_axis), dtype=float)
+    noskysub = None if nosky_native is None else np.asarray(_canonicalize(nosky_native, np_spec_axis), dtype=float)
+
+    if flux.shape != uncertainty.shape or flux.shape != good.shape:
+        raise ValueError("Prepared PRIMARY/UNCERT/GOODMASK shapes differ after axis standardization")
+    if wavelength.size != flux.shape[-1] or good_wave.size != flux.shape[-1]:
+        raise ValueError("Prepared WAVELENGTH/GOODWAVE length does not match spectral axis")
+    if good_spaxel.shape != flux.shape[:2]:
+        raise ValueError("Prepared GOODSPAX shape does not match spatial cube shape")
+
+    variance = uncertainty**2
+    # Script 1 does not save its pre-channel/pre-spaxel ``base_good`` mask because
+    # downstream stages only need the final immutable hard-good mask.  Reuse the
+    # final mask here rather than pretending to reconstruct an earlier state.
+    base_good = good.copy()
+    bad_fraction = np.full(wavelength.shape, np.nan, dtype=float)
+    for j in range(wavelength.size):
+        spatial = good_spaxel
+        if np.any(spatial):
+            bad_fraction[j] = 1.0 - float(np.mean(good[..., j][spatial]))
+
+    try:
+        celestial = WCS(header).celestial
+        if celestial.pixel_n_dim != 2 or celestial.world_n_dim != 2:
+            raise ValueError
+    except Exception as exc:
+        raise ValueError(f"Prepared cube lacks a valid 2-D celestial WCS: {source}") from exc
+
+    return KCWICube(
+        path=source,
+        arm=arm or str(expected_arm or ""),
+        flux=flux,
+        uncertainty=uncertainty,
+        variance=variance,
+        exposure=exposure,
+        drp_mask=drp_mask,
+        flags=None if flags is None else np.asarray(flags),
+        noskysub=noskysub,
+        wavelength=wavelength,
+        good=good,
+        base_good=base_good,
+        good_wavelength=good_wave,
+        good_spaxel=good_spaxel,
+        good_fraction_spaxel=good_fraction,
+        bad_fraction_wavelength=bad_fraction,
+        header=header,
+        original_spectral_axis=np_spec_axis,
+        original_shape=tuple(int(v) for v in primary.shape),
+        celestial_wcs=celestial,
+        input_format="prepared",
+        source_paths={"prepared_cube": source},
+        coverage_fraction_spaxel=coverage_fraction,
+    )
+
 def save_prepared_cube(cube: KCWICube, destination: str | Path, *, overwrite: bool = False) -> Path:
     """Write a standardized Script-1 FITS product while preserving input WCS.
 

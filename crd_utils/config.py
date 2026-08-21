@@ -203,6 +203,67 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
     if float(getattr(cfg, "LSF_EDGE_EXTRAPOLATION_WARNING_ANGSTROM", 100.0)) < 0:
         raise ValueError("LSF_EDGE_EXTRAPOLATION_WARNING_ANGSTROM cannot be negative.")
 
+    # Script 2: BL master PowerBins.  These checks are intentionally structural;
+    # real-data diagnostics still determine whether a particular development
+    # threshold is scientifically appropriate for a target.
+    if float(getattr(cfg, "BL_TARGET_SN", 40.0)) <= 0:
+        raise ValueError("BL_TARGET_SN must be positive.")
+    for key, default in (
+        ("BL_BINNING_REST_RANGE_ANGSTROM", (4800.0, 5400.0)),
+        ("RH3_SN_REST_RANGE_ANGSTROM", (8470.0, 8700.0)),
+    ):
+        value = getattr(cfg, key, default)
+        if not isinstance(value, (tuple, list)) or len(value) != 2:
+            raise ValueError(f"{key} must be a two-element wavelength range.")
+        lo, hi = float(value[0]), float(value[1])
+        if not (lo > 0 and hi > lo):
+            raise ValueError(f"{key} must contain positive increasing wavelengths.")
+    frac = float(getattr(cfg, "BINNING_MIN_VALID_WINDOW_FRACTION", 0.50))
+    if not 0.0 < frac <= 1.0:
+        raise ValueError("BINNING_MIN_VALID_WINDOW_FRACTION must lie in (0, 1].")
+    aperture_mode = str(getattr(cfg, "BINNING_APERTURE_MODE", "auto_connected_sn")).lower()
+    if aperture_mode not in {"auto_connected_sn", "all_good"}:
+        raise ValueError("BINNING_APERTURE_MODE must be 'auto_connected_sn' or 'all_good'.")
+    if float(getattr(cfg, "BINNING_APERTURE_SMOOTH_SIGMA_PIX", 2.0)) < 0:
+        raise ValueError("BINNING_APERTURE_SMOOTH_SIGMA_PIX cannot be negative.")
+    if float(getattr(cfg, "BINNING_APERTURE_SN_THRESHOLD", 2.0)) <= 0:
+        raise ValueError("BINNING_APERTURE_SN_THRESHOLD must be positive.")
+    if int(getattr(cfg, "BINNING_APERTURE_DILATE_PIX", 2)) < 0:
+        raise ValueError("BINNING_APERTURE_DILATE_PIX cannot be negative.")
+    if float(getattr(cfg, "BINNING_APERTURE_CENTER_MAX_DISTANCE_PIX", 5.0)) < 0:
+        raise ValueError("BINNING_APERTURE_CENTER_MAX_DISTANCE_PIX cannot be negative.")
+    if int(getattr(cfg, "BINNING_APERTURE_MIN_PIXELS", 25)) < 2:
+        raise ValueError("BINNING_APERTURE_MIN_PIXELS must be >= 2.")
+    max_radius = getattr(cfg, "BINNING_APERTURE_MAX_RADIUS_ARCSEC", None)
+    if max_radius is not None and float(max_radius) <= 0:
+        raise ValueError("BINNING_APERTURE_MAX_RADIUS_ARCSEC must be positive or None.")
+    cov_mode = str(getattr(cfg, "POWERBIN_SPATIAL_COVARIANCE_MODE", "none")).lower()
+    if cov_mode not in {"none", "log10"}:
+        raise ValueError("POWERBIN_SPATIAL_COVARIANCE_MODE must be 'none' or 'log10'.")
+    if float(getattr(cfg, "POWERBIN_SPATIAL_COVARIANCE_ALPHA", 0.0)) < 0:
+        raise ValueError("POWERBIN_SPATIAL_COVARIANCE_ALPHA cannot be negative.")
+    if int(getattr(cfg, "POWERBIN_MAXITER", 50)) < 1:
+        raise ValueError("POWERBIN_MAXITER must be >= 1.")
+    if int(getattr(cfg, "POWERBIN_VERBOSE", 1)) < 0:
+        raise ValueError("POWERBIN_VERBOSE cannot be negative.")
+    if float(getattr(cfg, "BIN_TRANSFER_MAX_DISTANCE_ARCSEC", 0.25)) <= 0:
+        raise ValueError("BIN_TRANSFER_MAX_DISTANCE_ARCSEC must be positive.")
+    pixdiff = float(getattr(cfg, "BIN_TRANSFER_MAX_PIXEL_SCALE_FRACTIONAL_DIFFERENCE", 0.05))
+    if not 0.0 <= pixdiff < 1.0:
+        raise ValueError("BIN_TRANSFER_MAX_PIXEL_SCALE_FRACTIONAL_DIFFERENCE must lie in [0, 1).")
+    assigned = float(getattr(cfg, "BIN_TRANSFER_MIN_ASSIGNED_FRACTION", 0.95))
+    if not 0.0 < assigned <= 1.0:
+        raise ValueError("BIN_TRANSFER_MIN_ASSIGNED_FRACTION must lie in (0, 1].")
+    member = float(getattr(cfg, "BIN_SPECTRUM_MIN_MEMBER_FRACTION", 0.50))
+    if not 0.0 < member <= 1.0:
+        raise ValueError("BIN_SPECTRUM_MIN_MEMBER_FRACTION must lie in (0, 1].")
+    low_sn = float(getattr(cfg, "BINNING_LOW_SN_WARNING_FRACTION", 0.80))
+    if not 0.0 < low_sn <= 1.0:
+        raise ValueError("BINNING_LOW_SN_WARNING_FRACTION must lie in (0, 1].")
+    sn_pct = float(getattr(cfg, "SN_PLOT_UPPER_PERCENTILE", 95.0))
+    if not 0.0 < sn_pct <= 100.0:
+        raise ValueError("SN_PLOT_UPPER_PERCENTILE must lie in (0, 100].")
+
 
 def validate_input_paths(cfg: PipelineConfig, path_keys: Iterable[str]) -> dict[str, Path]:
     """Validate only the input paths required by a particular pipeline stage.

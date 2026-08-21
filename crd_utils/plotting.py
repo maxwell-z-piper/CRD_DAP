@@ -587,3 +587,193 @@ def plot_spectral_covariance(result: NoiseDiagnosticResult, path: str | Path, *,
     ax.set_ylabel("Median residual correlation coefficient")
     ax.set_title(title)
     return _finish(fig, path)
+
+# =============================================================================
+# Script 2: BL master PowerBin diagnostics
+# =============================================================================
+
+def _finite_spatial_values(values: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    arr = np.asarray(values, dtype=float)
+    use = np.asarray(mask, dtype=bool) & np.isfinite(arr)
+    return arr[use]
+
+
+def plot_binning_aperture(
+    significance_proxy: np.ndarray,
+    aperture_mask: np.ndarray,
+    x_arcsec: np.ndarray,
+    y_arcsec: np.ndarray,
+    path: str | Path,
+    *,
+    threshold: float,
+    center_xy_arcsec: tuple[float, float] = (0.0, 0.0),
+    title: str = "BL stellar-body binning aperture",
+) -> Path:
+    """Show the smoothed detection proxy and final PowerBin input aperture."""
+    proxy = np.asarray(significance_proxy, dtype=float)
+    aperture = np.asarray(aperture_mask, dtype=bool)
+    x = np.asarray(x_arcsec, dtype=float)
+    y = np.asarray(y_arcsec, dtype=float)
+    if proxy.shape != aperture.shape or proxy.shape != x.shape or proxy.shape != y.shape:
+        raise ValueError("Script-2 aperture plot arrays must have matching 2-D shapes")
+
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.6), constrained_layout=True)
+    finite = proxy[np.isfinite(proxy)]
+    if finite.size:
+        vmin, vmax = np.nanpercentile(finite, [2, 98])
+    else:
+        vmin = vmax = None
+    im = axes[0].imshow(proxy, origin="lower", aspect="equal", vmin=vmin, vmax=vmax)
+    fig.colorbar(im, ax=axes[0], shrink=0.85, label="Smoothed continuum significance proxy")
+    axes[0].contour(aperture.astype(float), levels=[0.5], linewidths=1.0)
+    axes[0].set_title(f"Detection proxy | threshold={float(threshold):.2f}")
+    axes[0].set_xlabel("Spatial x pixel")
+    axes[0].set_ylabel("Spatial y pixel")
+
+    yy, xx = np.where(aperture)
+    if yy.size:
+        sc = axes[1].scatter(x[yy, xx], y[yy, xx], c=proxy[yy, xx], s=22, marker="s")
+        fig.colorbar(sc, ax=axes[1], shrink=0.85, label="Detection proxy")
+    axes[1].plot(center_xy_arcsec[0], center_xy_arcsec[1], marker="+", linestyle="none", markersize=10)
+    axes[1].set_aspect("equal")
+    axes[1].set_xlabel("Tangent-plane x (arcsec)")
+    axes[1].set_ylabel("Tangent-plane y (arcsec)")
+    axes[1].set_title(f"Final aperture | N={int(np.sum(aperture))} pixels")
+    fig.suptitle(title)
+    return _finish(fig, path)
+
+
+def plot_master_bins(
+    bin_map: np.ndarray,
+    x_arcsec: np.ndarray,
+    y_arcsec: np.ndarray,
+    path: str | Path,
+    *,
+    center_xy_arcsec: tuple[float, float] = (0.0, 0.0),
+    pa_kin_deg: float | None = None,
+    title: str = "BL master PowerBins",
+) -> Path:
+    """Plot the physical BL-defined PowerBin membership in tangent-plane coordinates."""
+    bin_map = np.asarray(bin_map, dtype=int)
+    x = np.asarray(x_arcsec, dtype=float)
+    y = np.asarray(y_arcsec, dtype=float)
+    if bin_map.shape != x.shape or bin_map.shape != y.shape:
+        raise ValueError("bin_map/x_arcsec/y_arcsec must match")
+    use = bin_map >= 0
+    fig, ax = plt.subplots(figsize=(7, 6))
+    yy, xx = np.where(use)
+    if yy.size:
+        sc = ax.scatter(x[yy, xx], y[yy, xx], c=bin_map[yy, xx], s=24, marker="s")
+        fig.colorbar(sc, ax=ax, label="PowerBin ID")
+    ax.plot(center_xy_arcsec[0], center_xy_arcsec[1], marker="+", linestyle="none", markersize=12, label="Adopted center")
+    if pa_kin_deg is not None and np.isfinite(pa_kin_deg):
+        # Tangent-plane x/y are east/north-like offsets. Astronomical PA is
+        # measured east of north, so dx=sin(PA), dy=cos(PA).
+        pa = np.deg2rad(float(pa_kin_deg))
+        finite_radius = np.hypot(x[use], y[use]) if np.any(use) else np.array([1.0])
+        length = float(np.nanmax(finite_radius)) if finite_radius.size else 1.0
+        dx = np.sin(pa) * length
+        dy = np.cos(pa) * length
+        ax.plot([-dx, dx], [-dy, dy], linestyle="--", label=r"$PA_{\rm kin}$ axis")
+    ax.set_aspect("equal")
+    ax.set_xlabel("Tangent-plane x (arcsec)")
+    ax.set_ylabel("Tangent-plane y (arcsec)")
+    ax.set_title(title)
+    ax.legend(loc="best")
+    return _finish(fig, path)
+
+
+def _bin_values_on_map(bin_map: np.ndarray, values: np.ndarray) -> np.ndarray:
+    bin_map = np.asarray(bin_map, dtype=int)
+    vals = np.asarray(values, dtype=float)
+    out = np.full(bin_map.shape, np.nan, dtype=float)
+    use = (bin_map >= 0) & (bin_map < vals.size)
+    out[use] = vals[bin_map[use]]
+    return out
+
+
+def plot_bin_value_map(
+    bin_map: np.ndarray,
+    values: np.ndarray,
+    path: str | Path,
+    *,
+    title: str,
+    colorbar_label: str,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> Path:
+    """Plot one scalar per PowerBin on the BL membership grid."""
+    image = _bin_values_on_map(bin_map, values)
+    fig, ax = plt.subplots(figsize=(7, 5.5))
+    im = ax.imshow(image, origin="lower", aspect="equal", vmin=vmin, vmax=vmax)
+    fig.colorbar(im, ax=ax, label=colorbar_label)
+    ax.set_xlabel("BL spatial x pixel")
+    ax.set_ylabel("BL spatial y pixel")
+    ax.set_title(title)
+    return _finish(fig, path)
+
+
+def plot_bl_rh3_sn_comparison(
+    bin_map: np.ndarray,
+    bl_sn: np.ndarray,
+    rh3_sn: np.ndarray,
+    path: str | Path,
+    *,
+    upper_percentile: float = 95.0,
+) -> Path:
+    """Compare BL and red/RH3 S/N on one identical PowerBin color scale."""
+    bl = np.asarray(bl_sn, dtype=float)
+    rh = np.asarray(rh3_sn, dtype=float)
+    combined = np.concatenate([bl[np.isfinite(bl)], rh[np.isfinite(rh)]])
+    if combined.size:
+        vmax = float(np.nanpercentile(combined, float(upper_percentile)))
+        if not np.isfinite(vmax) or vmax <= 0:
+            vmax = None
+    else:
+        vmax = None
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.6), constrained_layout=True)
+    images = [
+        _bin_values_on_map(bin_map, bl),
+        _bin_values_on_map(bin_map, rh),
+    ]
+    for ax, image, title in zip(axes, images, ("BL", "RH3 in BL-defined bins")):
+        im = ax.imshow(image, origin="lower", aspect="equal", vmin=0.0, vmax=vmax)
+        fig.colorbar(im, ax=ax, shrink=0.85, label="Median continuum S/N per spectral pixel")
+        ax.set_xlabel("BL spatial x pixel")
+        ax.set_ylabel("BL spatial y pixel")
+        ax.set_title(title)
+    fig.suptitle(
+        f"BL / RH3 achieved S/N | shared vmax=P{float(upper_percentile):g}(combined)"
+    )
+    return _finish(fig, path)
+
+
+def plot_bin_transfer(
+    bl_bin_map: np.ndarray,
+    rh3_bin_map: np.ndarray,
+    match_distance_arcsec: np.ndarray,
+    path: str | Path,
+    *,
+    max_distance_arcsec: float,
+) -> Path:
+    """QC the sky-WCS transfer of BL membership onto the RH3 native grid."""
+    bl = np.asarray(bl_bin_map, dtype=int)
+    rh = np.asarray(rh3_bin_map, dtype=int)
+    dist = np.asarray(match_distance_arcsec, dtype=float)
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.4), constrained_layout=True)
+    for ax, image, title in (
+        (axes[0], np.where(bl >= 0, bl, np.nan), "BL master bin map"),
+        (axes[1], np.where(rh >= 0, rh, np.nan), "RH3 transferred membership"),
+    ):
+        im = ax.imshow(image, origin="lower", aspect="equal")
+        fig.colorbar(im, ax=ax, shrink=0.82, label="PowerBin ID")
+        ax.set_title(title)
+        ax.set_xlabel("Spatial x pixel")
+        ax.set_ylabel("Spatial y pixel")
+    dshow = np.where(rh >= 0, dist, np.nan)
+    im = axes[2].imshow(dshow, origin="lower", aspect="equal", vmin=0.0, vmax=float(max_distance_arcsec))
+    fig.colorbar(im, ax=axes[2], shrink=0.82, label="Nearest BL pixel-center distance (arcsec)")
+    axes[2].set_title("WCS membership-transfer distance")
+    axes[2].set_xlabel("RH3 spatial x pixel")
+    axes[2].set_ylabel("RH3 spatial y pixel")
+    return _finish(fig, path)
