@@ -44,3 +44,11 @@ def test_measure_arc_lsf_recovers_gaussian_width():
     expected_fwhm = 2.354820045 * sigma_a
     assert result.n_lines_used >= 6
     assert np.isclose(np.median(result.fwhm_angstrom), expected_fwhm, atol=0.25)
+
+    # The instrument-good interval can extend beyond the accepted line centers.
+    # The LSF model must not silently extrapolate beyond its empirical support.
+    assert result.measurement_wavelength_min >= result.wavelength_min
+    assert result.measurement_wavelength_max <= result.wavelength_max
+    below = result.measurement_wavelength_min - 1.0
+    assert np.isnan(result.evaluate_fwhm(below))
+    assert np.isfinite(result.evaluate_fwhm(below, allow_extrapolation=True))
