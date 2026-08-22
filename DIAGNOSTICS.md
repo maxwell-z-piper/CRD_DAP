@@ -513,7 +513,7 @@ Maps the robust achieved continuum S/N per spectral pixel for each final extract
 
 ### Healthy result
 
-Most non-single BL bins lie near the target S/N, while single high-surface-brightness pixels may exceed it. RH3 S/N may differ substantially because it does not drive the tessellation. White/blank bins can legitimately indicate non-positive median continuum or too few valid channels rather than a plotting failure.
+Most non-single BL bins lie near the target S/N, while single high-surface-brightness pixels may exceed it. RH3 S/N may differ substantially because it does not drive the tessellation. Bins with undefined achieved S/N are rendered in neutral gray inside the existing BL master-bin footprint, while sky outside the tessellation remains white. Gray therefore means "the physical bin exists, but this S/N measurement is undefined," not failed BL-to-RH3 membership transfer.
 
 ### Warning signs
 
@@ -522,6 +522,8 @@ A large population of BL bins far below the target can indicate a mismatch betwe
 ### Numerical companions
 
 `master_bin_table.ecsv` preserves `BL_SN_SIGNED`, `RH3_SN_SIGNED`, `BL_SN_LEGACY`, `RH3_SN_LEGACY`, median continuum flux, median/minimum uncertainty, negative-flux fraction, and valid-channel counts. These columns are the first place to look when an achieved-S/N value appears pathological.
+
+Script 2 also logs the requested and usable observed-frame wavelength interval for each arm. `SN_WINDOW_COVERAGE_WARNING` means the configured window is truncated by Script-1 `GOODWAVE`; the pipeline does not search for or adopt a substitute window automatically.
 
 ---
 
@@ -553,7 +555,30 @@ Values above the 95th percentile saturate visually but remain numerically preser
 
 ### Interpretation
 
-Equivalent colors mean equivalent S/N. This makes it immediately obvious whether the red/RH3 spectra have enough information in the BL-defined apertures and prevents independent autoscaling from hiding cross-arm differences.
+Equivalent colors mean equivalent S/N. This makes it immediately obvious whether the red/RH3 spectra have enough information in the BL-defined apertures and prevents independent autoscaling from hiding cross-arm differences. Undefined S/N bins are gray in-place rather than disappearing, so the viewer can distinguish an S/N pathology from a missing spatial bin.
+
+---
+
+## `RH3_SN_window_scan.png` / `BL_SN_window_scan.png`
+
+**Script:** development utility `scripts/scan_script02_sn_windows.py`  
+**Class:** optional integration-test QC; not part of the production pipeline
+
+### Purpose
+
+Scans fixed-width **observed-frame** continuum windows through the already extracted Script-2 bin spectra. This is useful when non-production test data use a grating whose useful wavelength range is a poor match to the production CaT S/N window.
+
+### Quantities
+
+- fraction of evaluable bins with positive median continuum;
+- fraction of evaluable bins with extreme signed S/N;
+- median robust S/N among positive-continuum bins.
+
+The companion `*_SN_window_scan.ecsv` additionally records window bounds, native channel count, number of evaluable/positive bins, and the 10th-percentile positive-bin S/N.
+
+### Interpretation
+
+Use this plot only to diagnose whether pathologies are localized in wavelength. It does not define the production RH3 science window, never edits a target config, and should not be used to optimize away real sky/telluric or reduction problems.
 
 ---
 

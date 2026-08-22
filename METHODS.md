@@ -380,7 +380,7 @@ The achieved RH3 S/N is measured but never drives the bin boundaries.
 The final extracted-spectrum S/N is a QC/reporting statistic, not the PowerBin capacity itself. For each bin and configured continuum window, Script 2 now defines the robust signed diagnostic
 
 $$
-(S/N)_{i,\mathrm{signed}} = rac{\mathrm{median}[F_i(\lambda)]}{\mathrm{median}[\sigma_i(\lambda)]}.
+(S/N)_{i,\mathrm{signed}} = \frac{\mathrm{median}[F_i(\lambda)]}{\mathrm{median}[\sigma_i(\lambda)]}.
 $$
 
 This ratio-of-medians is less sensitive than the former $\mathrm{median}[F_i(\lambda)/\sigma_i(\lambda)]$ estimator to isolated wavelength samples with spuriously tiny formal uncertainties. The older estimator is still saved in the per-bin table as an audit diagnostic.
@@ -388,6 +388,14 @@ This ratio-of-medians is less sensitive than the former $\mathrm{median}[F_i(\la
 A non-positive median continuum does not represent a meaningful positive achieved S/N. When `BIN_SN_REQUIRE_POSITIVE_CONTINUUM=True`, the production-facing `BL_SN`/`RH3_SN` value is therefore saved as `NaN` for such a bin, while the signed value, legacy estimator, median flux, median uncertainty, minimum uncertainty, negative-flux fraction, and number of good channels remain explicitly saved. No flux or variance is clipped or rescaled by this rule.
 
 Extreme signed values and large disagreement between the robust and legacy estimators generate quality flags and should trigger inspection with `scripts/inspect_script02_sn.py`.
+
+### S/N-window coverage QC
+
+Before measuring achieved S/N, Script 2 compares each configured rest-frame window with the Script-1 `GOODWAVE` envelope after transforming the requested interval to observed wavelength. This is a configuration/data-consistency check only. The pipeline logs the requested observed interval, the usable interval, the fraction of the requested wavelength width covered, and the fraction of native requested channels that remain usable.
+
+If the requested interval extends beyond the Script-1 usable wavelength envelope, Script 2 raises `SN_WINDOW_COVERAGE_WARNING`. The configured window is **not** moved, optimized, or replaced automatically. This matters for development data such as an RL integration fixture being passed through a pipeline whose production red-arm window is designed for RH3 CaT observations. Production RH3 data should normally place the CaT window well inside the intended grating coverage; the warning exists to catch configuration mistakes and non-production test cases rather than to make poor data look artificially good.
+
+An optional development-only utility, `scripts/scan_script02_sn_windows.py`, can scan fixed-width observed-frame windows in an already completed Script-2 spectral product. It reports the positive-continuum bin fraction, median positive-bin S/N, lower-tail S/N, and extreme-|S/N| fraction. This utility never edits the target config and is not imported by the production pipeline.
 
 ## 5.5 Geometric aperture spectra and formal uncertainties
 
@@ -448,6 +456,7 @@ Important non-fatal flags include:
 - `SPATIAL_COVARIANCE_UNCALIBRATED`: the current PowerBin capacity uses formal diagonal spatial variance because no empirical spatial covariance law has yet been validated;
 - `BIN_TRANSFER_INCOMPLETE`: fewer red/RH3 pixels than expected could be assigned to the BL-defined physical apertures;
 - `LOW_BL_BIN_SN`: the measured S/N of one or more final BL spectra falls substantially below the configured target despite the PowerBin proxy;
+- `SN_WINDOW_COVERAGE_WARNING`: a configured achieved-S/N window extends beyond the Script-1 `GOODWAVE` envelope; the pipeline records the truncation but does not change the window automatically;
 - `NONPOSITIVE_BIN_CONTINUUM`: one or more configured S/N windows have non-positive median continuum, so a positive achieved-S/N value is undefined for those bins;
 - `EXTREME_BIN_SN_DIAGNOSTIC`: a signed robust or legacy S/N diagnostic exceeds the configured numerical warning threshold;
 - `BIN_SN_ESTIMATOR_DISAGREEMENT`: the robust ratio-of-medians and legacy median-of-ratios disagree by more than the configured factor;
