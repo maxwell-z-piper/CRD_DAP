@@ -85,6 +85,10 @@ FLAG_DEFINITIONS = {
         "SPATIAL_COVARIANCE_UNCALIBRATED",
         "PowerBin capacities and formal coadded uncertainties currently use diagonal spatial variance because no validated KcwiKit spatial covariance law has been supplied.",
     ),
+    "SN_WINDOW_COVERAGE_WARNING": QualityFlagDefinition(
+        "SN_WINDOW_COVERAGE_WARNING",
+        "A configured Script-2 continuum-S/N window extends beyond the Script-1 GOODWAVE envelope; the requested window is retained and the truncation is recorded as QC rather than automatically replaced.",
+    ),
     "NONPOSITIVE_BIN_CONTINUUM": QualityFlagDefinition(
         "NONPOSITIVE_BIN_CONTINUUM",
         "One or more bin S/N windows have non-positive median continuum, so a positive achieved-S/N value is undefined; signed diagnostics are retained for inspection.",

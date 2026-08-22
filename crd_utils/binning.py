@@ -46,6 +46,29 @@ class ContinuumWindowMaps:
 
 
 @dataclass(frozen=True)
+class SNWindowCoverage:
+    """Coverage diagnostics for one configured continuum-S/N window.
+
+    This is a pure QC object.  It never changes the requested wavelength range
+    or substitutes another range.  ``requested_*`` describe the full
+    redshifted configuration interval; ``usable_*`` describe the portion that
+    survives Script-1 ``GOODWAVE``.
+    """
+
+    requested_observed_min: float
+    requested_observed_max: float
+    usable_observed_min: float
+    usable_observed_max: float
+    requested_width_angstrom: float
+    envelope_coverage_fraction: float
+    usable_channel_fraction: float
+    n_requested_channels: int
+    n_usable_channels: int
+    truncated_blue: bool
+    truncated_red: bool
+
+
+@dataclass(frozen=True)
 class ApertureResult:
     """Smoothed galaxy-detection aperture used as the PowerBin input domain."""
 
@@ -131,6 +154,87 @@ def observed_range_from_rest(rest_range: tuple[float, float], redshift: float) -
         raise ValueError("redshift must be non-negative")
     factor = 1.0 + float(redshift)
     return lo * factor, hi * factor
+
+
+def sn_window_coverage(
+    wavelength: np.ndarray,
+    good_wavelength: np.ndarray,
+    *,
+    rest_range: tuple[float, float],
+    redshift: float,
+) -> SNWindowCoverage:
+    """Quantify whether a configured S/N window is fully supported by the cube.
+
+    The diagnostic deliberately does **not** search for a better wavelength
+    range and does not alter the requested interval.  Its sole purpose is to
+    catch configuration/data mismatches such as using a production CaT window
+    with an RL integration-test cube whose usable red edge truncates that
+    interval.
+
+    Two complementary fractions are reported:
+
+    ``envelope_coverage_fraction``
+        Fraction of the requested wavelength *width* lying inside the envelope
+        spanned by Script-1 ``GOODWAVE`` channels.
+
+    ``usable_channel_fraction``
+        Fraction of native wavelength samples inside the requested interval
+        that are actually marked good by Script 1.  Isolated masked channels
+        therefore affect this number without being mistaken for an edge
+        truncation.
+    """
+    wave = np.asarray(wavelength, dtype=float).ravel()
+    good = np.asarray(good_wavelength, dtype=bool).ravel()
+    if wave.size != good.size:
+        raise ValueError("wavelength and good_wavelength must have the same length")
+    finite_wave = np.isfinite(wave)
+    good = good & finite_wave
+    if not np.any(good):
+        raise ValueError("No finite Script-1 GOODWAVE channels are available")
+
+    req_lo, req_hi = observed_range_from_rest(rest_range, redshift)
+    req_width = float(req_hi - req_lo)
+    if req_width <= 0:
+        raise ValueError("Requested observed S/N window has non-positive width")
+
+    good_wave = wave[good]
+    env_lo = float(np.nanmin(good_wave))
+    env_hi = float(np.nanmax(good_wave))
+    overlap_lo = max(req_lo, env_lo)
+    overlap_hi = min(req_hi, env_hi)
+    overlap_width = max(0.0, overlap_hi - overlap_lo)
+    envelope_fraction = float(np.clip(overlap_width / req_width, 0.0, 1.0))
+
+    requested_channels = finite_wave & (wave >= req_lo) & (wave <= req_hi)
+    n_requested = int(np.sum(requested_channels))
+    n_usable = int(np.sum(requested_channels & good))
+    usable_channel_fraction = (
+        float(n_usable / n_requested) if n_requested > 0 else 0.0
+    )
+
+    # Allow half a native wavelength sample when deciding whether an edge is
+    # genuinely truncated, so floating-point WCS rounding does not create a
+    # spurious warning for an otherwise exact match.
+    finite_sorted = np.sort(wave[finite_wave])
+    if finite_sorted.size > 1:
+        dw = float(np.nanmedian(np.diff(finite_sorted)))
+        tolerance = 0.5 * abs(dw) if np.isfinite(dw) else 0.0
+    else:
+        tolerance = 0.0
+
+    return SNWindowCoverage(
+        requested_observed_min=float(req_lo),
+        requested_observed_max=float(req_hi),
+        usable_observed_min=float(max(req_lo, env_lo)) if overlap_width > 0 else np.nan,
+        usable_observed_max=float(min(req_hi, env_hi)) if overlap_width > 0 else np.nan,
+        requested_width_angstrom=req_width,
+        envelope_coverage_fraction=envelope_fraction,
+        usable_channel_fraction=usable_channel_fraction,
+        n_requested_channels=n_requested,
+        n_usable_channels=n_usable,
+        truncated_blue=bool(req_lo < env_lo - tolerance),
+        truncated_red=bool(req_hi > env_hi + tolerance),
+    )
 
 
 def _safe_nanmedian(array: np.ndarray, axis: int) -> np.ndarray:

@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 
 from .psf_lsf import ArcLSFResult, PSFEstimate
 from .noise import NoiseDiagnosticResult
@@ -701,11 +702,52 @@ def plot_bin_value_map(
     colorbar_label: str,
     vmin: float | None = None,
     vmax: float | None = None,
+    show_undefined_bins: bool = True,
 ) -> Path:
-    """Plot one scalar per PowerBin on the BL membership grid."""
-    image = _bin_values_on_map(bin_map, values)
+    """Plot one scalar per PowerBin on the BL membership grid.
+
+    Pixels outside the BL master tessellation remain white.  When a bin exists
+    geometrically but its scalar value is undefined (for example, RH3 achieved
+    S/N is ``NaN`` because the median continuum is non-positive), the bin is
+    shown in neutral gray rather than disappearing into the background.  This
+    makes a data-quality limitation visually distinct from failed bin transfer.
+    """
+    bmap = np.asarray(bin_map, dtype=int)
+    vals = np.asarray(values, dtype=float)
+    image = _bin_values_on_map(bmap, vals)
     fig, ax = plt.subplots(figsize=(7, 5.5))
-    im = ax.imshow(image, origin="lower", aspect="equal", vmin=vmin, vmax=vmax)
+
+    valid_image = np.ma.masked_invalid(image)
+    im = ax.imshow(valid_image, origin="lower", aspect="equal", vmin=vmin, vmax=vmax)
+
+    if show_undefined_bins:
+        inside = bmap >= 0
+        undefined = np.zeros(bmap.shape, dtype=bool)
+        use = inside & (bmap < vals.size)
+        undefined[use] = ~np.isfinite(vals[bmap[use]])
+        if np.any(undefined):
+            overlay = np.ma.masked_where(~undefined, np.ones(bmap.shape, dtype=float))
+            ax.imshow(
+                overlay,
+                origin="lower",
+                aspect="equal",
+                cmap=ListedColormap(["0.78"]),
+                vmin=0.0,
+                vmax=1.0,
+                interpolation="nearest",
+            )
+            n_undefined_bins = int(np.sum(~np.isfinite(vals)))
+            ax.text(
+                0.02,
+                0.02,
+                f"gray = undefined value ({n_undefined_bins} bins)",
+                transform=ax.transAxes,
+                ha="left",
+                va="bottom",
+                fontsize=9,
+                bbox=dict(facecolor="white", alpha=0.85, edgecolor="0.5"),
+            )
+
     fig.colorbar(im, ax=ax, label=colorbar_label)
     ax.set_xlabel("BL spatial x pixel")
     ax.set_ylabel("BL spatial y pixel")
@@ -721,7 +763,14 @@ def plot_bl_rh3_sn_comparison(
     *,
     upper_percentile: float = 95.0,
 ) -> Path:
-    """Compare BL and red/RH3 S/N on one identical PowerBin color scale."""
+    """Compare BL and red/RH3 S/N on one identical PowerBin color scale.
+
+    Undefined S/N values are rendered in gray *inside the existing BL-defined
+    bin footprint*.  The area outside the master tessellation remains white.
+    Thus an undefined RH3 continuum measurement cannot be mistaken for a
+    missing or unsuccessfully transferred spatial bin.
+    """
+    bmap = np.asarray(bin_map, dtype=int)
     bl = np.asarray(bl_sn, dtype=float)
     rh = np.asarray(rh3_sn, dtype=float)
     combined = np.concatenate([bl[np.isfinite(bl)], rh[np.isfinite(rh)]])
@@ -731,17 +780,49 @@ def plot_bl_rh3_sn_comparison(
             vmax = None
     else:
         vmax = None
+
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.6), constrained_layout=True)
-    images = [
-        _bin_values_on_map(bin_map, bl),
-        _bin_values_on_map(bin_map, rh),
-    ]
-    for ax, image, title in zip(axes, images, ("BL", "RH3 in BL-defined bins")):
-        im = ax.imshow(image, origin="lower", aspect="equal", vmin=0.0, vmax=vmax)
+    for ax, vals, title in zip(axes, (bl, rh), ("BL", "RH3 in BL-defined bins")):
+        image = _bin_values_on_map(bmap, vals)
+        im = ax.imshow(
+            np.ma.masked_invalid(image),
+            origin="lower",
+            aspect="equal",
+            vmin=0.0,
+            vmax=vmax,
+        )
+
+        inside = bmap >= 0
+        undefined = np.zeros(bmap.shape, dtype=bool)
+        use = inside & (bmap < vals.size)
+        undefined[use] = ~np.isfinite(vals[bmap[use]])
+        if np.any(undefined):
+            overlay = np.ma.masked_where(~undefined, np.ones(bmap.shape, dtype=float))
+            ax.imshow(
+                overlay,
+                origin="lower",
+                aspect="equal",
+                cmap=ListedColormap(["0.78"]),
+                vmin=0.0,
+                vmax=1.0,
+                interpolation="nearest",
+            )
+            ax.text(
+                0.02,
+                0.02,
+                f"gray = undefined ({int(np.sum(~np.isfinite(vals)))} bins)",
+                transform=ax.transAxes,
+                ha="left",
+                va="bottom",
+                fontsize=8.5,
+                bbox=dict(facecolor="white", alpha=0.85, edgecolor="0.5"),
+            )
+
         fig.colorbar(im, ax=ax, shrink=0.85, label="Robust continuum S/N per spectral pixel")
         ax.set_xlabel("BL spatial x pixel")
         ax.set_ylabel("BL spatial y pixel")
         ax.set_title(title)
+
     fig.suptitle(
         f"BL / RH3 achieved S/N | shared vmax=P{float(upper_percentile):g}(combined)"
     )
