@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Callable
 
@@ -29,6 +30,11 @@ class RH3LikelihoodCube:
     best_index: tuple[int, int, int] | None
     n_failures: int
     n_sigma_boundary: int
+    n_ppxf_failures: int
+    n_fixed_velocity_mismatch: int
+    first_failure_state: tuple[float, float, float] | None
+    first_failure_message: str
+    failure_message_counts: tuple[tuple[str, int], ...]
 
 
 def uniform_grid(minimum: float, maximum: float, n: int) -> np.ndarray:
@@ -96,6 +102,9 @@ def build_rh3_likelihood_cube(
     tol = max(0.0, float(sigma_boundary_tolerance_kms))
     total_states = int(np.prod(shape))
     completed = 0
+    failure_counter: Counter[str] = Counter()
+    first_failure_state: tuple[float, float, float] | None = None
+    first_failure_message = ""
 
     for ia, va in enumerate(va_grid):
         for ib, vb in enumerate(vb_grid):
@@ -130,6 +139,15 @@ def build_rh3_likelihood_cube(
                         and np.isclose(result.velocity[1], vb, atol=1.0e-6, rtol=0.0)
                     ):
                         status[idx] = FIT_STATUS_FIXED_VELOCITY_MISMATCH
+                        msg = (
+                            "FIXED_VELOCITY_MISMATCH: requested "
+                            f"(VA,VB)=({va:.6g},{vb:.6g}) but pPXF returned "
+                            f"({result.velocity[0]:.6g},{result.velocity[1]:.6g})"
+                        )
+                        failure_counter[msg] += 1
+                        if first_failure_state is None:
+                            first_failure_state = (float(va), float(vb), float(fa))
+                            first_failure_message = msg
                     else:
                         chi2[idx] = result.chi2_total
                         reduced[idx] = result.reduced_chi2
@@ -143,6 +161,12 @@ def build_rh3_likelihood_cube(
                             or (result.sigma[1] >= smax - tol)
                         )
                         boundary[idx] = np.uint8(1 if near else 0)
+                else:
+                    msg = result.error_message or "Unknown pPXF failure"
+                    failure_counter[msg] += 1
+                    if first_failure_state is None:
+                        first_failure_state = (float(va), float(vb), float(fa))
+                        first_failure_message = msg
                 completed += 1
                 if progress_callback is not None:
                     progress_callback(completed, total_states)
@@ -166,4 +190,9 @@ def build_rh3_likelihood_cube(
         best_index=best_index,
         n_failures=int(np.sum(status != FIT_STATUS_SUCCESS)),
         n_sigma_boundary=int(np.sum(boundary > 0)),
+        n_ppxf_failures=int(np.sum(status == FIT_STATUS_PPXF_FAILURE)),
+        n_fixed_velocity_mismatch=int(np.sum(status == FIT_STATUS_FIXED_VELOCITY_MISMATCH)),
+        first_failure_state=first_failure_state,
+        first_failure_message=first_failure_message,
+        failure_message_counts=tuple(failure_counter.most_common()),
     )

@@ -226,13 +226,25 @@ def fit_fixed_two_component_state(
     if set(np.unique(component)) != {0, 1}:
         raise ValueError("Script-3 two-component fits require component labels {0, 1}.")
 
-    # Velocity bounds remain deliberately broad.  ``fixed`` is what makes the
-    # velocity coordinate exact; the bounds merely keep the supplied fixed value
-    # inside pPXF's feasible region for all configured grids.
-    vlim = max(abs(float(velocity_a)), abs(float(velocity_b)), 1000.0) + 1000.0
+    # V_A and V_B are exact likelihood coordinates, not free search parameters.
+    # pPXF still requires finite bounds when bounds are supplied for the free
+    # dispersions, so give each fixed velocity only a tiny bookkeeping interval
+    # around its requested value.  The ``fixed`` keyword is what enforces the
+    # exact coordinate.  Keeping these bounds local also prevents pPXF's
+    # lam/lam_temp template-coverage logic from interpreting a fixed state as a
+    # spurious +/-2000 km/s velocity search.
+    velocity_half_width = max(1.0e-3, 1.0e-3 * abs(float(velscale)))
+    va = float(velocity_a)
+    vb = float(velocity_b)
     bounds = [
-        [[-vlim, vlim], [float(sigma_bounds[0]), float(sigma_bounds[1])]],
-        [[-vlim, vlim], [float(sigma_bounds[0]), float(sigma_bounds[1])]],
+        [
+            [va - velocity_half_width, va + velocity_half_width],
+            [float(sigma_bounds[0]), float(sigma_bounds[1])],
+        ],
+        [
+            [vb - velocity_half_width, vb + velocity_half_width],
+            [float(sigma_bounds[0]), float(sigma_bounds[1])],
+        ],
     ]
 
     try:
