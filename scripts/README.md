@@ -1,6 +1,6 @@
 # Science-driver scripts
 
-This directory contains the executable pipeline stages described in `../METHODS.md`. Script 1 is implemented; later stages are added sequentially as their helper functions are completed and tested.
+This directory contains the executable pipeline stages described in `../METHODS.md`. Scripts 1--3 are implemented; later stages are added sequentially as their helper functions are completed and tested.
 
 The drivers should intentionally stay compact. They should orchestrate work by calling thoroughly documented functions in `crd_utils` rather than containing large blocks of analysis logic themselves.
 
@@ -26,3 +26,20 @@ Each script should:
 6. save numerical products before making optional presentation plots;
 7. write a concise completion summary with timing and warnings;
 8. return a non-zero exit status if a scientifically important stage fails, while preserving completed products whenever practical.
+
+## Script 3 command-line behavior
+
+`03_build_RH3_likelihood_cubes.py` supports:
+
+```bash
+python scripts/03_build_RH3_likelihood_cubes.py \
+    --config config/<target>.py \
+    --script2-run runs/<script2-run> \
+    --workers 3
+```
+
+`--workers N` means N Python worker processes (approximately N compute cores); BLAS/OpenMP thread pools are capped at one thread per worker. CPU affinity is not pinned, so the operating system still controls scheduling.
+
+An interrupted run can be continued with `--resume`. One PowerBin is one atomic checkpoint. The configuration hash is verified before any checkpoint is reused. By default the intermediary checkpoint directory is deleted only after every final Script-3 product and the manifest have been written successfully.
+
+The baseline driver intentionally does **not** expose `--bins` or `--max-bins`; add a targeted diagnostic interface later only if troubleshooting demonstrates a real need.
