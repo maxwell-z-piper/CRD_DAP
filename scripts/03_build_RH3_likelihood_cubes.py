@@ -26,6 +26,15 @@ capped at one thread per process before NumPy/pPXF are imported.  Thus on a
 four-core machine ``--workers 3`` launches three compute workers and avoids
 four-way nested BLAS threading.  CPU affinity is not pinned; final scheduling is
 still controlled by the operating system.
+
+Interactive progress
+--------------------
+During the expensive per-bin grid stage, an interactive terminal gets a single
+carriage-return status line with a spinner, bin-level progress bar, elapsed time,
+time since the last completed bin, and ETA once at least one new bin has
+finished.  The heartbeat is terminal-only and is not written into the science
+log file.  It therefore shows that the parent process is alive and has not yet
+received a worker exception without cluttering the permanent log.
 """
 
 from __future__ import annotations
@@ -44,7 +53,20 @@ for _name in (
     os.environ.setdefault(_name, "1")
 
 import argparse
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+import warnings
+
+# CAPFIT occasionally evaluates actred/prered with a zero predicted reduction
+# during an otherwise valid pPXF optimization.  Those two RuntimeWarnings are
+# harmless terminal noise for this brute-force stage.  Suppress ONLY those
+# exact CAPFIT messages; pipeline logger warnings and all other Python warnings
+# remain visible.  This top-level filter is also executed in spawned workers.
+warnings.filterwarnings(
+    "ignore",
+    message=r"(divide by zero|invalid value) encountered in scalar divide",
+    category=RuntimeWarning,
+    module=r"capfit\.capfit",
+)
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -64,8 +86,74 @@ import crd_utils as crd
 from crd_utils import io, plotting, ppxf_grid, ppxf_utils, templates
 
 
-CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_SCHEMA_VERSION = 2
+# Extra log-grid pixels used only as template-support edge safety.
+TEMPLATE_EDGE_SAFETY_PIXELS = 4
+# Seconds between terminal-only heartbeat refreshes while waiting for a bin.
+PROGRESS_HEARTBEAT_SECONDS = 5.0
+PROGRESS_BAR_WIDTH = 24
 _WORKER = {}
+
+
+def _format_duration(seconds: float) -> str:
+    """Format a positive duration compactly for the interactive status line."""
+    seconds = max(0, int(round(float(seconds))))
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _progress_bar(done: int, total: int, width: int = PROGRESS_BAR_WIDTH) -> str:
+    """Return a fixed-width ASCII bin-level progress bar."""
+    total = max(1, int(total))
+    done = min(max(0, int(done)), total)
+    frac = done / total
+    filled = min(width, int(frac * width))
+    return "[" + "#" * filled + "-" * (width - filled) + "]"
+
+
+def _write_terminal_status(text: str, previous_width: int = 0) -> int:
+    """Write one carriage-return status line without touching the logfile."""
+    if not sys.stderr.isatty():
+        return 0
+    width = max(previous_width, len(text))
+    sys.stderr.write("\r" + text.ljust(width))
+    sys.stderr.flush()
+    return width
+
+
+def _clear_terminal_status(previous_width: int) -> None:
+    """Erase the dynamic status line before a normal logger message."""
+    if previous_width > 0 and sys.stderr.isatty():
+        sys.stderr.write("\r" + " " * previous_width + "\r")
+        sys.stderr.flush()
+
+
+def _fit_status_line(
+    *,
+    spinner: str,
+    completed_total: int,
+    nbin: int,
+    workers: int,
+    elapsed: float,
+    since_last_completion: float,
+    eta_seconds: float | None,
+) -> str:
+    """Build the terminal-only Script-3 heartbeat/progress line."""
+    pct = 100.0 * completed_total / max(1, nbin)
+    if eta_seconds is None or not np.isfinite(eta_seconds):
+        eta_text = "ETA warming up"
+        last_text = "last new bin: none yet"
+    else:
+        eta_text = f"ETA {_format_duration(eta_seconds)}"
+        last_text = f"last new bin {_format_duration(since_last_completion)} ago"
+    return (
+        f"{spinner} RUNNING {_progress_bar(completed_total, nbin)} "
+        f"{completed_total}/{nbin} bins ({pct:5.1f}%) | workers={workers} | "
+        f"elapsed {_format_duration(elapsed)} | {last_text} | {eta_text}"
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -442,6 +530,134 @@ def _normalize_galaxy_for_ppxf(galaxy, noise, good):
     return np.asarray(galaxy, dtype=float) / scale, np.asarray(noise, dtype=float) / scale, scale
 
 
+def _script03_velocity_support(va, vb, cfg, velscale):
+    """Compute template support from the actual one- and two-component domains."""
+    va = np.asarray(va, dtype=float)
+    vb = np.asarray(vb, dtype=float)
+    two_component_max_abs = float(max(np.max(np.abs(va)), np.max(np.abs(vb))))
+    single_bounds = (
+        float(np.min(va) - cfg.RH3_SINGLE_VELOCITY_MARGIN_KMS),
+        float(np.max(va) + cfg.RH3_SINGLE_VELOCITY_MARGIN_KMS),
+    )
+    single_component_max_abs = float(max(abs(single_bounds[0]), abs(single_bounds[1])))
+    max_kinematic_abs = max(two_component_max_abs, single_component_max_abs)
+    dispersion_margin = float(cfg.RH3_TEMPLATE_PADDING_SIGMA) * float(cfg.RH3_SIGMA_MAX_KMS)
+    edge_safety = float(TEMPLATE_EDGE_SAFETY_PIXELS) * float(velscale)
+    total_padding = max_kinematic_abs + dispersion_margin + edge_safety
+    return {
+        "two_component_max_abs_kms": two_component_max_abs,
+        "single_velocity_bounds_kms": single_bounds,
+        "single_component_max_abs_kms": single_component_max_abs,
+        "dispersion_margin_kms": dispersion_margin,
+        "edge_safety_kms": edge_safety,
+        "total_padding_kms": float(total_padding),
+    }
+
+
+def _coverage_preflight_bin_ids(good_all):
+    """Select bins spanning the earliest, latest, and widest good-pixel support."""
+    good = np.asarray(good_all, dtype=bool)
+    first = np.full(good.shape[0], good.shape[1], dtype=int)
+    last = np.full(good.shape[0], -1, dtype=int)
+    span = np.full(good.shape[0], -1, dtype=int)
+    for bid in range(good.shape[0]):
+        gp = np.flatnonzero(good[bid])
+        if gp.size:
+            first[bid] = int(gp[0])
+            last[bid] = int(gp[-1])
+            span[bid] = int(gp[-1] - gp[0])
+    valid = np.flatnonzero(last >= 0)
+    if valid.size == 0:
+        raise RuntimeError("No Script-3 bin has valid log-wavelength pixels for pPXF preflight.")
+    return sorted({
+        int(valid[np.argmin(first[valid])]),
+        int(valid[np.argmax(last[valid])]),
+        int(valid[np.argmax(span[valid])]),
+    })
+
+
+def _run_ppxf_template_coverage_preflight(
+    *, logger, prepared, templates_two, component, gal_all, noise_all, good_all,
+    log_wave, va, vb, fa, support, cfg, velscale
+):
+    """Run real pPXF coverage checks before any worker processes are launched."""
+    bids = _coverage_preflight_bin_ids(good_all)
+    fraction_probe = float(fa[len(fa) // 2])
+    corner_states = [
+        (float(va[0]), float(vb[0])),
+        (float(va[0]), float(vb[-1])),
+        (float(va[-1]), float(vb[0])),
+        (float(va[-1]), float(vb[-1])),
+    ]
+    single_bounds = tuple(support["single_velocity_bounds_kms"])
+
+    logger.info(
+        "Template-support budget: max|V| two-component=%.1f km/s; one-component bounds=%.1f--%.1f km/s; "
+        "dispersion margin=%.1f km/s; %d-pixel edge safety=%.1f km/s; total padding=%.1f km/s",
+        support["two_component_max_abs_kms"], single_bounds[0], single_bounds[1],
+        support["dispersion_margin_kms"], TEMPLATE_EDGE_SAFETY_PIXELS,
+        support["edge_safety_kms"], support["total_padding_kms"],
+    )
+    logger.info(
+        "pPXF wavelength-coverage preflight: galaxy log grid=%.2f--%.2f A; prepared templates=%.2f--%.2f A; test bins=%s",
+        float(log_wave[0]), float(log_wave[-1]), float(prepared.wavelength[0]),
+        float(prepared.wavelength[-1]), bids,
+    )
+
+    for bid in bids:
+        gp = np.flatnonzero(np.asarray(good_all[bid], dtype=bool))
+        galaxy_n, noise_n, scale = _normalize_galaxy_for_ppxf(gal_all[bid], noise_all[bid], good_all[bid])
+        if not np.isfinite(scale):
+            raise RuntimeError(f"pPXF preflight bin {bid} could not be normalized.")
+        logger.info(
+            "pPXF preflight bin %d good-pixel wavelength range: %.2f--%.2f A (%d pixels)",
+            bid, float(log_wave[gp[0]]), float(log_wave[gp[-1]]), gp.size,
+        )
+
+        single = ppxf_utils.fit_single_losvd(
+            templates=prepared.templates, galaxy=galaxy_n, noise=noise_n,
+            velscale=velscale, lam=log_wave, lam_temp=prepared.wavelength,
+            goodpixels=gp, start_velocity=float(cfg.RH3_SINGLE_VELOCITY_START_KMS),
+            start_sigma=float(cfg.RH3_SIGMA_START_KMS), velocity_bounds=single_bounds,
+            sigma_bounds=(float(cfg.RH3_SIGMA_MIN_KMS), float(cfg.RH3_SIGMA_MAX_KMS)),
+            degree=int(cfg.RH3_DEGREE), mdegree=int(cfg.RH3_MDEGREE),
+            regul=float(cfg.RH3_REGUL), keep_full=False,
+        )
+        if not single.success:
+            raise RuntimeError(
+                "SCRIPT03_PPXF_PREFLIGHT_FAILED | One-component control failed before worker launch. "
+                f"Bin={bid}; galaxy_good_range={log_wave[gp[0]]:.2f}--{log_wave[gp[-1]]:.2f} A; "
+                f"template_range={prepared.wavelength[0]:.2f}--{prepared.wavelength[-1]:.2f} A; "
+                f"velocity_bounds={single_bounds}; error={single.error_message}"
+            )
+
+        for va0, vb0 in corner_states:
+            state = ppxf_utils.fit_fixed_two_component_state(
+                templates_two_component=templates_two, component=component, galaxy=galaxy_n,
+                noise=noise_n, velscale=velscale, lam=log_wave, lam_temp=prepared.wavelength,
+                goodpixels=gp, velocity_a=va0, velocity_b=vb0, fraction_a=fraction_probe,
+                start_sigma_a=float(cfg.RH3_SIGMA_START_KMS),
+                start_sigma_b=float(cfg.RH3_SIGMA_START_KMS),
+                sigma_bounds=(float(cfg.RH3_SIGMA_MIN_KMS), float(cfg.RH3_SIGMA_MAX_KMS)),
+                degree=int(cfg.RH3_DEGREE), mdegree=int(cfg.RH3_MDEGREE),
+                regul=float(cfg.RH3_REGUL), keep_full=False,
+            )
+            if not state.success:
+                raise RuntimeError(
+                    "SCRIPT03_PPXF_PREFLIGHT_FAILED | Exact two-component corner state failed before worker launch. "
+                    f"Bin={bid}; VA={va0:.1f}; VB={vb0:.1f}; fA={fraction_probe:.3f}; "
+                    f"galaxy_good_range={log_wave[gp[0]]:.2f}--{log_wave[gp[-1]]:.2f} A; "
+                    f"template_range={prepared.wavelength[0]:.2f}--{prepared.wavelength[-1]:.2f} A; "
+                    f"error={state.error_message}"
+                )
+
+    logger.info(
+        "pPXF template-coverage preflight: PASS (%d representative bin(s); one-component control + four two-component grid corners each)",
+        len(bids),
+    )
+    return bids
+
+
 def _worker_init(constants: dict) -> None:
     global _WORKER
     _WORKER = constants
@@ -478,6 +694,20 @@ def _fit_one_bin_worker(payload):
         keep_full=True,
     )
 
+    # Diagnostic preflight: retain the one-component status before entering the
+    # expensive 3-D search.  We intentionally do not abort solely because the
+    # one-component control failed; a two-component fit can in principle still
+    # succeed.  If the entire two-component cube fails, however, the exact
+    # one-component exception is included in the raised diagnostic.
+    single_diagnostic = (
+        "SUCCESS "
+        f"(V={float(single.velocity[0]):.3f} km/s, "
+        f"sigma={float(single.sigma[0]):.3f} km/s, "
+        f"chi2_total={float(single.chi2_total):.6g})"
+        if single.success
+        else f"FAILED: {single.error_message or 'unknown one-component pPXF error'}"
+    )
+
     cube = ppxf_grid.build_rh3_likelihood_cube(
         templates_two_component=c["templates_two"],
         component=c["component"],
@@ -499,7 +729,35 @@ def _fit_one_bin_worker(payload):
         sigma_boundary_tolerance_kms=float(c["sigma_boundary_tolerance"]),
     )
     if cube.best_index is None:
-        raise RuntimeError(f"Bin {bid}: every two-component grid state failed.")
+        lines = [
+            f"Bin {bid}: every two-component grid state failed or was rejected.",
+            f"One-component control: {single_diagnostic}",
+            (
+                "Two-component grid summary: "
+                f"ppxf_failures={cube.n_ppxf_failures}, "
+                f"fixed_velocity_mismatches={cube.n_fixed_velocity_mismatch}, "
+                f"total_states={int(np.prod(cube.chi2_total.shape))}."
+            ),
+        ]
+        if cube.first_failure_state is not None:
+            va0, vb0, fa0 = cube.first_failure_state
+            lines.append(
+                "First failed state: "
+                f"VA={va0:.3f} km/s, VB={vb0:.3f} km/s, fA={fa0:.3f}."
+            )
+            lines.append(
+                "First state error: "
+                f"{cube.first_failure_message or 'unknown failure'}"
+            )
+        if cube.failure_message_counts:
+            lines.append("Most common two-component failure messages:")
+            for msg, count in cube.failure_message_counts[:5]:
+                lines.append(f"  {count}/{int(np.prod(cube.chi2_total.shape))}: {msg}")
+        lines.append(
+            "This diagnostic comes from the pPXF worker itself; changing --workers "
+            "will not fix a repeated model/setup exception."
+        )
+        raise RuntimeError("\n".join(lines))
     ia, ib, jf = cube.best_index
     best_va = float(c["va_grid"][ia])
     best_vb = float(c["vb_grid"][ib])
@@ -549,6 +807,8 @@ def _fit_one_bin_worker(payload):
         "fit_status": cube.fit_status,
         "sigma_boundary": cube.sigma_boundary,
         "n_failures": int(cube.n_failures),
+        "n_ppxf_failures": int(cube.n_ppxf_failures),
+        "n_fixed_velocity_mismatch": int(cube.n_fixed_velocity_mismatch),
         "n_sigma_boundary": int(cube.n_sigma_boundary),
         "one_success": bool(single.success),
         "one_chi2_total": float(single.chi2_total),
@@ -1034,8 +1294,8 @@ def main() -> int:
         va = ppxf_grid.uniform_grid(cfg.RH3_VA_MIN_KMS, cfg.RH3_VA_MAX_KMS, cfg.RH3_VA_N)
         vb = ppxf_grid.uniform_grid(cfg.RH3_VB_MIN_KMS, cfg.RH3_VB_MAX_KMS, cfg.RH3_VB_N)
         fa = ppxf_grid.fraction_grid(cfg.RH3_FA_MIN, cfg.RH3_FA_MAX, cfg.RH3_FA_STEP)
-        max_grid_v = max(np.max(np.abs(va)), np.max(np.abs(vb)))
-        padding_kms = float(max_grid_v + float(cfg.RH3_TEMPLATE_PADDING_SIGMA) * float(cfg.RH3_SIGMA_MAX_KMS))
+        support = _script03_velocity_support(va, vb, cfg, velscale)
+        padding_kms = float(support["total_padding_kms"])
 
         def target_fwhm(rest_template_wave):
             return templates.observed_lsf_to_template_rest_fwhm(
@@ -1079,6 +1339,12 @@ def main() -> int:
                 f"Template/galaxy velocity-scale mismatch: templates={temp_velscale}, galaxy={velscale} km/s."
             )
 
+        preflight_bins = _run_ppxf_template_coverage_preflight(
+            logger=logger, prepared=prepared, templates_two=templates_two, component=component,
+            gal_all=gal_all, noise_all=noise_all, good_all=good_all, log_wave=log_wave,
+            va=va, vb=vb, fa=fa, support=support, cfg=cfg, velscale=velscale,
+        )
+
         _section(logger, "4. Evaluate independent one-component controls and 3-D profile-likelihood cubes")
         expected_shape = (va.size, vb.size, fa.size)
         completed = [bid for bid in range(nbin) if _checkpoint_is_valid(_checkpoint_path(checkpoints, bid), expected_shape)]
@@ -1107,10 +1373,7 @@ def main() -> int:
             "sigma_bounds": (float(cfg.RH3_SIGMA_MIN_KMS), float(cfg.RH3_SIGMA_MAX_KMS)),
             "sigma_boundary_tolerance": float(cfg.RH3_SIGMA_BOUNDARY_WARNING_KMS),
             "single_start_velocity": float(getattr(cfg, "RH3_SINGLE_VELOCITY_START_KMS", 0.0)),
-            "single_velocity_bounds": (
-                float(np.min(va) - cfg.RH3_SINGLE_VELOCITY_MARGIN_KMS),
-                float(np.max(va) + cfg.RH3_SINGLE_VELOCITY_MARGIN_KMS),
-            ),
+            "single_velocity_bounds": tuple(support["single_velocity_bounds_kms"]),
             "degree": int(cfg.RH3_DEGREE),
             "mdegree": int(cfg.RH3_MDEGREE),
             "regul": float(cfg.RH3_REGUL),
@@ -1119,7 +1382,17 @@ def main() -> int:
 
         if pending:
             fit_start = time.perf_counter()
+            last_completion = fit_start
             done_now = 0
+            spinner_chars = "|/-\\"
+            spinner_index = 0
+            status_width = 0
+
+            logger.info(
+                "Interactive heartbeat: terminal status refresh every %.0f s while waiting for completed bins; progress is measured at the PowerBin checkpoint level.",
+                PROGRESS_HEARTBEAT_SECONDS,
+            )
+
             with ProcessPoolExecutor(
                 max_workers=workers,
                 initializer=_worker_init,
@@ -1132,31 +1405,107 @@ def main() -> int:
                     ): bid
                     for bid in pending
                 }
-                for future in as_completed(future_to_bid):
-                    bid = future_to_bid[future]
-                    try:
-                        result = future.result()
-                    except Exception:
-                        logger.exception("Bin %d failed before checkpoint completion; aborting Script 3 so the run can be resumed.", bid)
-                        for f in future_to_bid:
-                            f.cancel()
-                        raise
-                    _write_checkpoint(_checkpoint_path(checkpoints, bid), result)
-                    done_now += 1
-                    elapsed = time.perf_counter() - fit_start
-                    rate = elapsed / done_now
-                    remain = (len(pending) - done_now) * rate
-                    logger.info(
-                        "Bin %d complete | %d/%d new bins | failed states=%d/%d | sigma-boundary states=%d | elapsed=%.1f min | ETA=%.1f min",
-                        bid,
-                        done_now,
-                        len(pending),
-                        int(result["n_failures"]),
-                        int(np.prod(expected_shape)),
-                        int(result["n_sigma_boundary"]),
-                        elapsed / 60.0,
-                        remain / 60.0,
+                outstanding = set(future_to_bid)
+
+                # Draw immediately so the user sees activity even before the
+                # first expensive 2601-state PowerBin has completed.
+                now = time.perf_counter()
+                status_width = _write_terminal_status(
+                    _fit_status_line(
+                        spinner=spinner_chars[spinner_index % len(spinner_chars)],
+                        completed_total=len(completed) + done_now,
+                        nbin=nbin,
+                        workers=workers,
+                        elapsed=now - fit_start,
+                        since_last_completion=now - last_completion,
+                        eta_seconds=None,
+                    ),
+                    status_width,
+                )
+
+                while outstanding:
+                    done_set, outstanding = wait(
+                        outstanding,
+                        timeout=PROGRESS_HEARTBEAT_SECONDS,
+                        return_when=FIRST_COMPLETED,
                     )
+                    now = time.perf_counter()
+
+                    if not done_set:
+                        spinner_index += 1
+                        if done_now > 0:
+                            seconds_per_bin = (now - fit_start) / done_now
+                            eta_seconds = (len(pending) - done_now) * seconds_per_bin
+                        else:
+                            eta_seconds = None
+                        status_width = _write_terminal_status(
+                            _fit_status_line(
+                                spinner=spinner_chars[spinner_index % len(spinner_chars)],
+                                completed_total=len(completed) + done_now,
+                                nbin=nbin,
+                                workers=workers,
+                                elapsed=now - fit_start,
+                                since_last_completion=now - last_completion,
+                                eta_seconds=eta_seconds,
+                            ),
+                            status_width,
+                        )
+                        continue
+
+                    for future in done_set:
+                        bid = future_to_bid[future]
+                        _clear_terminal_status(status_width)
+                        status_width = 0
+                        try:
+                            result = future.result()
+                        except Exception:
+                            logger.exception(
+                                "Bin %d failed before checkpoint completion; aborting Script 3 so the run can be resumed.",
+                                bid,
+                            )
+                            for f in outstanding:
+                                f.cancel()
+                            raise
+
+                        _write_checkpoint(_checkpoint_path(checkpoints, bid), result)
+                        done_now += 1
+                        last_completion = time.perf_counter()
+                        elapsed = last_completion - fit_start
+                        rate = elapsed / done_now
+                        remain = (len(pending) - done_now) * rate
+                        logger.info(
+                            "Bin %d complete | %d/%d new bins | failed states=%d/%d (pPXF=%d, fixed-V mismatch=%d) | sigma-boundary states=%d | elapsed=%.1f min | ETA=%.1f min",
+                            bid,
+                            done_now,
+                            len(pending),
+                            int(result["n_failures"]),
+                            int(np.prod(expected_shape)),
+                            int(result["n_ppxf_failures"]),
+                            int(result["n_fixed_velocity_mismatch"]),
+                            int(result["n_sigma_boundary"]),
+                            elapsed / 60.0,
+                            remain / 60.0,
+                        )
+
+                    if outstanding:
+                        spinner_index += 1
+                        now = time.perf_counter()
+                        seconds_per_bin = (now - fit_start) / done_now if done_now else np.nan
+                        eta_seconds = (len(pending) - done_now) * seconds_per_bin if done_now else None
+                        status_width = _write_terminal_status(
+                            _fit_status_line(
+                                spinner=spinner_chars[spinner_index % len(spinner_chars)],
+                                completed_total=len(completed) + done_now,
+                                nbin=nbin,
+                                workers=workers,
+                                elapsed=now - fit_start,
+                                since_last_completion=now - last_completion,
+                                eta_seconds=eta_seconds,
+                            ),
+                            status_width,
+                        )
+
+                _clear_terminal_status(status_width)
         else:
             logger.info("All %d bin checkpoints are already complete; proceeding directly to consolidation.", nbin)
 
@@ -1215,6 +1564,18 @@ def main() -> int:
             "science_wavelength_medium": science_medium,
             "template_wavelength_medium": template_medium,
             "velscale_kms": float(velscale),
+            "template_support": {
+                "two_component_max_abs_velocity_kms": float(support["two_component_max_abs_kms"]),
+                "single_velocity_bounds_kms": [float(x) for x in support["single_velocity_bounds_kms"]],
+                "dispersion_padding_sigma_multiple": float(cfg.RH3_TEMPLATE_PADDING_SIGMA),
+                "dispersion_margin_kms": float(support["dispersion_margin_kms"]),
+                "edge_safety_pixels": int(TEMPLATE_EDGE_SAFETY_PIXELS),
+                "edge_safety_kms": float(support["edge_safety_kms"]),
+                "total_velocity_padding_kms": float(support["total_padding_kms"]),
+                "prepared_template_range_angstrom": [float(prepared.wavelength[0]), float(prepared.wavelength[-1])],
+                "ppxf_preflight_bins": [int(x) for x in preflight_bins],
+                "ppxf_preflight_passed": True,
+            },
             "grid": {
                 "VA_kms": va.tolist(),
                 "VB_kms": vb.tolist(),
