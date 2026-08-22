@@ -1871,3 +1871,92 @@ Before a final science run is accepted, the user should be able to answer all of
 20. Can every final figure/table be traced back to the configuration, run logs, and numerical products that produced it?
 
 If the answer to an important item is “no” or “unknown,” the pipeline should make that visible rather than allowing a visually polished final map to hide the unresolved issue.
+
+---
+
+# Script 3 — pPXF failure diagnostics and worker exceptions
+
+## Global pPXF wavelength-coverage preflight
+
+**Script:** 03  
+**Helpers:** `crd_utils.ppxf_utils`, `crd_utils.templates`  
+**Class:** critical pre-worker validation
+
+Before multiprocessing begins, Script 3 tests the prepared XSL basis with the **actual installed pPXF**. The preflight logs:
+
+- the fitted galaxy log-wavelength endpoints;
+- the prepared-template wavelength endpoints;
+- the exact two-component velocity-grid extent;
+- the free one-component velocity bounds;
+- the dispersion-convolution padding and log-grid edge-safety margin;
+- the representative bins chosen to span the earliest/latest/widest good-pixel support.
+
+For each representative bin it runs the one-component control and the four extreme `(V_A,V_B)` corners of the exact two-component grid at a representative `f_A`. A template-coverage or other pPXF setup error therefore stops the run **before** hundreds of thousands of worker fits are submitted.
+
+The two-component preflight uses the same exact fixed-velocity implementation as the production cube. Fixed velocities have only tiny bookkeeping bounds around their requested values; no artificial +/-2000 km/s search interval is attached to an exact likelihood coordinate.
+
+A successful run prints `pPXF template-coverage preflight: PASS`. A failure prints the galaxy good-pixel wavelength interval, template interval, trial state, and exact pPXF exception.
+
+## Per-bin pPXF preflight / all-state failure report
+
+**Script:** 03  
+**Helpers:** `crd_utils.ppxf_utils`, `crd_utils.ppxf_grid`  
+**Class:** critical troubleshooting diagnostic
+
+### Purpose
+
+Script 3 evaluates thousands of exact two-component pPXF states per PowerBin. A
+worker-process traceback such as `RuntimeError: Bin N: every two-component grid
+state failed` is only the *summary* failure; it is not itself evidence that
+multiprocessing caused the problem. The actual pPXF exception raised inside an
+individual state is the useful diagnostic.
+
+### Behavior
+
+For each PowerBin, Script 3 now retains the status of the one-component control
+and counts the distinct failure messages returned by all two-component grid
+states. If no finite two-component state survives, the worker raises a detailed
+multi-line `RuntimeError` containing:
+
+- whether the one-component control succeeded or failed, including its exact
+  exception message when it failed;
+- the number of ordinary pPXF exceptions;
+- the number of states rejected because pPXF did not preserve the requested
+  fixed velocities;
+- the first failed `(V_A, V_B, f_A)` coordinate;
+- the exact exception from that first failed state;
+- up to five most-common two-component failure messages and their occurrence
+  counts.
+
+This diagnostic is generated inside the worker and is propagated back through
+`ProcessPoolExecutor`. The surrounding `RemoteTraceback` therefore identifies
+*where* the exception occurred; it does not imply that `--workers > 1` is the
+scientific cause of the fit failure.
+
+### Partially successful cubes
+
+A bin is allowed to finish when at least one grid state is valid. Its normal log
+summary separately reports:
+
+```text
+failed states=N/2601 (pPXF=N1, fixed-V mismatch=N2)
+```
+
+so isolated failures are visible without aborting the full run.
+
+### Interactive heartbeat / progress line
+
+During the per-bin likelihood calculation, an interactive terminal receives one dynamic carriage-return status line refreshed every five seconds. It reports completed PowerBin checkpoints, worker count, elapsed time, time since the last newly completed bin, and an ETA after the first completion. The line is intentionally not copied to the permanent log file.
+
+Before any PowerBin has finished, `ETA warming up` is expected: one bin contains 2601 exact two-component pPXF states, so a long quiet interval before the first checkpoint can be normal. A moving spinner demonstrates only that the parent process is alive and has not yet received an exception from a worker; it should not be interpreted as a scientific QC result or a guarantee that a worker cannot be stalled.
+
+The repetitive CAPFIT `divide by zero` / `invalid value` scalar-division `RuntimeWarning`s are narrowly suppressed in Script 3 to keep this status readable. This does **not** suppress CRD_DAP logger warnings, pPXF exceptions, or unrelated Python warnings.
+
+### Recommended action
+
+When an all-state failure occurs, first inspect the repeated pPXF exception in
+the detailed report. Do **not** change the number of workers, velocity grid,
+noise model, or science assumptions merely to make the traceback disappear.
+Correct the underlying pPXF/model-input problem and rerun. Completed checkpoints
+from other bins remain available for `--resume` when they are compatible with
+the corrected run state.

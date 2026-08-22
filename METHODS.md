@@ -504,6 +504,8 @@ $$
 
 the stellar-template weights within each component, and the additive-continuum coefficients.
 
+Because the velocities are fixed, their pPXF bounds are only tiny bookkeeping intervals around the requested coordinate; Script 3 does **not** give a fixed grid state an artificial broad velocity-search range. This is important both conceptually and for pPXF's automatic `lam`/`lam_temp` template-coverage logic.
+
 The complete $V_A/V_B$ plane is retained, including $V_A=V_B$ and the component-swapped half of the cube. The symmetry
 
 $$
@@ -573,11 +575,12 @@ Use the **full XSL SSP grid** for RH3 rather than reducing the basis purely for 
 The RH3-prepared template matrix is produced by:
 
 1. loading the complete configured XSL SSP library;
-2. cropping to the science interval plus velocity/dispersion padding;
-3. evaluating the Script-1 empirical wavelength-dependent RH3 LSF only inside its measured arc-line support;
-4. broadening the XSL templates in quadrature where the data LSF is broader;
-5. applying the fixed light-fraction normalization convention below;
-6. log-rebinning at the same velocity scale as the galaxy spectrum.
+2. computing template padding from the **actual fitting domains**: the most extreme exact two-component grid velocity, the full one-component control velocity bounds, the configured multiple of the maximum allowed dispersion, and a small log-grid edge-safety margin;
+3. cropping to that padded wavelength range;
+4. evaluating the Script-1 empirical wavelength-dependent RH3 LSF only inside its measured arc-line support;
+5. broadening the XSL templates in quadrature where the data LSF is broader;
+6. applying the fixed light-fraction normalization convention below;
+7. log-rebinning at the same velocity scale as the galaxy spectrum.
 
 The pipeline must **not** take an absolute value when
 
@@ -586,6 +589,8 @@ $$
 $$
 
 If the XSL SSP basis is intrinsically broader than the real RH3 data over part of the required interval, Script 3 currently hard-fails and reports the incompatibility rather than silently degrading or misrepresenting the spectral resolution. A future production treatment may broaden the galaxy to a validated common target LSF, but that operation must also propagate the resulting noise covariance and should be adopted explicitly rather than hidden inside template preparation.
+
+Before any `ProcessPoolExecutor` workers are launched, Script 3 performs a real **pPXF wavelength-coverage preflight** using the installed pPXF version. It selects the small set of bins that collectively span the earliest, latest, and widest good-pixel wavelength support; runs the one-component control; and evaluates the four extreme two-component velocity-grid corners at a representative fraction. The log records the galaxy and prepared-template wavelength endpoints, the padding budget, the test bins, and PASS/FAIL. A failure aborts before the expensive cube calculation begins.
 
 ## 6.7 Definition of $f_{A,\mathrm{RH3}}$
 
@@ -745,6 +750,10 @@ SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS = True
 This retains crash safety without permanently duplicating the final likelihood data.
 
 `--workers N` launches $N$ Python worker processes and caps BLAS/OpenMP thread pools to one thread per worker before NumPy/pPXF import. Thus `--workers 3` on a four-core laptop is intended to use approximately three compute cores while leaving capacity for the operating system. This is not hard CPU-affinity pinning; the operating system remains responsible for scheduling.
+
+During this expensive stage the parent process refreshes a terminal-only heartbeat every five seconds. The status line contains a spinner, the fraction of PowerBins with completed atomic checkpoints, elapsed wall time, time since the most recent newly completed bin, and an ETA once at least one new bin provides a measured runtime. Progress is intentionally defined at the **PowerBin checkpoint level** rather than pretending to know the fractional completion of a currently executing 2601-state grid. The carriage-return line is not written to the persistent science log. A moving spinner means the parent event loop is alive and has not yet received a worker exception; it does not replace the state-level failure diagnostics or guarantee that an individual worker cannot be unusually slow.
+
+CAPFIT can emit repeated `RuntimeWarning`s when its internal predicted reduction is zero (`actred/prered`) even when pPXF ultimately returns a valid fit. Script 3 suppresses only the two exact CAPFIT scalar-division warnings by warning category, message, and module. All pipeline `logger.warning(...)` records and unrelated Python warnings remain enabled.
 
 No `--bins` or `--max-bins` interface is part of the baseline implementation at this stage.
 
@@ -1473,3 +1482,14 @@ A target should not be treated as publication-ready merely because all scripts e
 - all important diagnostics have been inspected and documented.
 
 Only then should final maps, radial trends, and machine-readable measurements be treated as the scientific result.
+
+### Script-3 state-failure bookkeeping
+
+The profile-likelihood surface is constructed only from states for which pPXF
+returns a valid solution at the requested exact velocities. State-level pPXF
+exceptions and fixed-velocity mismatches are not assigned finite chi-square;
+they are recorded as distinct fit-status classes. If an entire bin contains no
+valid state, Script 3 aborts rather than constructing a fictitious likelihood
+surface, and reports the underlying pPXF exception frequencies for diagnosis.
+This bookkeeping is numerical quality control and does not alter the scientific
+likelihood definition.

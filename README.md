@@ -108,7 +108,7 @@ Each run is intended to create a timestamped directory under `runs/` containing:
 - diagnostic figures;
 - metadata needed to reproduce the run.
 
-The logging utilities are designed to write to both the terminal and log files. Long pPXF calculations can therefore be left unattended without losing the progress and timing history.
+The logging utilities are designed to write to both the terminal and log files. Long pPXF calculations can therefore be left unattended without losing the progress and timing history. During Script 3's expensive per-bin likelihood stage, an interactive terminal additionally shows one carriage-return heartbeat/progress line (spinner, completed PowerBins, elapsed time, time since the last completed bin, and ETA after the first completion). That dynamic line is deliberately **not** copied into the permanent log. It indicates that the parent process remains alive and has not yet received a worker exception; it is not a substitute for the fit/QC diagnostics.
 
 ## Documentation
 
@@ -122,3 +122,6 @@ Both files should evolve together with the code. A new science diagnostic should
 The project deliberately favors scientific completeness, traceability, and explicit diagnostics over minimizing runtime or disk usage. Expensive calculations may be cached and parallelized, but approximations should be introduced only when their effect has been tested.
 
 The numerical settings in the template configuration are **development defaults**, not universal scientific truths. Values such as grid resolution, polynomial degree, Monte Carlo count, and geometry-prior widths are expected to be validated on mocks and real data before publication.
+
+
+Script 3 now derives template wavelength padding from both the exact two-component grid and the one-component control velocity domain, then runs a real pPXF wavelength-coverage preflight before launching worker processes.
