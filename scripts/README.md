@@ -34,9 +34,13 @@ Each script should:
 ```bash
 python scripts/03_build_RH3_likelihood_cubes.py \
     --config config/<target>.py \
+    --script1-run runs/<script1-run> \
     --script2-run runs/<script2-run> \
     --workers 3
 ```
+
+
+`--script1-run` is optional when the Script-2 manifest still points to the correct Script-1 run. Use it explicitly when upstream run directories have been moved or renamed. If the explicit Script-1 path differs from the path recorded by Script 2, Script 3 logs a provenance warning but uses the explicit path.
 
 `--workers N` means N Python worker processes (approximately N compute cores); BLAS/OpenMP thread pools are capped at one thread per worker. CPU affinity is not pinned, so the operating system still controls scheduling.
 

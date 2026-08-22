@@ -45,7 +45,7 @@ for _name in (
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -83,6 +83,16 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Explicit Script-2 run directory containing products/master_bin_spectra.fits. "
             "If omitted, the newest complete Script-2 run for the target is used."
+        ),
+    )
+    parser.add_argument(
+        "--script1-run",
+        default=None,
+        help=(
+            "Explicit Script-1 run directory containing products/prepared_RH3.fits and "
+            "the saved RH3 LSF products. If omitted, Script 3 uses the source_script1_run "
+            "recorded in the Script-2 manifest. This option is useful when run directories "
+            "have been renamed or moved after Script 2 was created."
         ),
     )
     parser.add_argument(
@@ -136,6 +146,54 @@ def _required_script2_products(run_dir: Path) -> dict[str, Path]:
 def _is_complete_script2_run(run_dir: Path) -> bool:
     req = _required_script2_products(run_dir)
     return all(req[key].is_file() for key in ("spectra", "bins", "table", "membership", "manifest"))
+
+
+def _is_usable_script1_run(run_dir: Path) -> bool:
+    """Return True when the minimum Script-1 products required by Script 3 exist."""
+    run_dir = Path(run_dir)
+    return (run_dir / "products" / "prepared_RH3.fits").is_file()
+
+
+def _resolve_script1_run(s02_manifest: dict, explicit: str | None) -> tuple[Path, Path | None]:
+    """Resolve the Script-1 provenance path, allowing an explicit path override.
+
+    Returns
+    -------
+    resolved_run
+        Script-1 run actually used by Script 3.
+    manifest_run
+        Script-1 path recorded by Script 2, or None if the manifest lacks it.
+    """
+    manifest_value = s02_manifest.get("source_script1_run")
+    manifest_run = (
+        Path(manifest_value).expanduser().resolve()
+        if manifest_value not in (None, "")
+        else None
+    )
+
+    if explicit is not None:
+        run = Path(explicit).expanduser().resolve()
+        if not run.is_dir():
+            raise FileNotFoundError(f"Explicit Script-1 run does not exist: {run}")
+        if not _is_usable_script1_run(run):
+            raise FileNotFoundError(
+                "Explicit Script-1 run is missing the prepared RH3 product required by "
+                f"Script 3: {run / 'products' / 'prepared_RH3.fits'}"
+            )
+        return run, manifest_run
+
+    if manifest_run is None:
+        raise FileNotFoundError(
+            "The Script-2 manifest does not contain source_script1_run. "
+            "Pass --script1-run explicitly."
+        )
+    if not _is_usable_script1_run(manifest_run):
+        raise FileNotFoundError(
+            "The Script-1 run recorded in the Script-2 manifest is unavailable or has "
+            "been moved/renamed. Recorded path: "
+            f"{manifest_run}. Pass --script1-run <current-script1-run> explicitly."
+        )
+    return manifest_run, manifest_run
 
 
 def _find_script2_run(cfg, explicit: str | None) -> Path:
@@ -800,8 +858,35 @@ def main() -> int:
         source_run = Path(state["source_script2_run"]).expanduser().resolve()
         if args.script2_run is not None and source_run != Path(args.script2_run).expanduser().resolve():
             raise RuntimeError("--script2-run disagrees with the source run stored in the resume state.")
+        state_script1 = state.get("source_script1_run")
+        script1_run = (
+            Path(state_script1).expanduser().resolve()
+            if state_script1 not in (None, "")
+            else None
+        )
+        resume_script1_override = None
+        if args.script1_run is not None:
+            explicit_script1 = Path(args.script1_run).expanduser().resolve()
+            if script1_run is not None and script1_run != explicit_script1:
+                existing_checkpoints = list((run.run_dir / "checkpoints").glob("bin_*.npz"))
+                if existing_checkpoints:
+                    raise RuntimeError(
+                        "--script1-run disagrees with the source Script-1 run stored in the "
+                        "resume state, and completed per-bin checkpoints already exist. "
+                        "Changing Script-1 provenance after fitting has begun could mix "
+                        "different LSF/wavelength assumptions. Start a new Script-3 run instead."
+                    )
+                resume_script1_override = script1_run
+            script1_run = explicit_script1
+        if script1_run is not None and not _is_usable_script1_run(script1_run):
+            raise FileNotFoundError(
+                "The Script-1 run stored for this resume is unavailable or incomplete: "
+                f"{script1_run}."
+            )
     else:
         source_run = _find_script2_run(cfg, args.script2_run)
+        script1_run = None
+        resume_script1_override = None
         run = _new_run(cfg, args.run_name)
 
     logger = _setup_logger(run)
@@ -831,7 +916,40 @@ def main() -> int:
         if not _is_complete_script2_run(source_run):
             raise FileNotFoundError(f"Incomplete Script-2 run: {source_run}")
         s02_manifest = _read_script2_manifest(source_run)
-        script1_run = Path(s02_manifest["source_script1_run"]).expanduser().resolve()
+        if args.resume and script1_run is not None:
+            manifest_value = s02_manifest.get("source_script1_run")
+            manifest_script1_run = (
+                Path(manifest_value).expanduser().resolve()
+                if manifest_value not in (None, "")
+                else None
+            )
+        else:
+            script1_run, manifest_script1_run = _resolve_script1_run(
+                s02_manifest, args.script1_run
+            )
+
+        logger.info("Source Script-1 run: %s", script1_run)
+        if (
+            args.script1_run is not None
+            and manifest_script1_run is not None
+            and script1_run != manifest_script1_run
+        ):
+            logger.warning(
+                "SCRIPT1_RUN_PATH_OVERRIDE | Script-2 manifest records %s, but Script 3 "
+                "will use explicit --script1-run %s. This is appropriate when the same "
+                "Script-1 run directory was moved or renamed; verify that the products "
+                "really correspond to the Script-2 provenance.",
+                manifest_script1_run, script1_run,
+            )
+        if args.resume and resume_script1_override is not None:
+            logger.warning(
+                "RESUME_SCRIPT1_PATH_OVERRIDE | Resume state recorded %s, but no completed "
+                "per-bin checkpoints exist, so the explicit --script1-run path %s is safe "
+                "to adopt. The resume metadata will be updated before fitting begins.",
+                resume_script1_override, script1_run,
+            )
+            state["source_script1_run"] = str(script1_run)
+            io.write_json(state, run.metadata_dir / "script03_resume_state.json")
 
         if not args.resume:
             state = {
@@ -842,7 +960,7 @@ def main() -> int:
                 "config_path": str(Path(args.config).expanduser().resolve()),
                 "config_sha256": _sha256(Path(args.config).expanduser().resolve()),
                 "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
-                "created_utc": datetime.utcnow().isoformat() + "Z",
+                "created_utc": datetime.now(timezone.utc).isoformat(),
             }
             io.write_json(state, run.metadata_dir / "script03_resume_state.json")
 
