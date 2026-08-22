@@ -626,120 +626,222 @@ Area and BL/RH3 member counts are saved per bin in `master_bin_table.ecsv`, whil
 
 # Script 3 — RH3 profile likelihood and preliminary kinematics
 
-## `RH3_single_velocity_map.png`
+Script 3 is intentionally verbose diagnostically because its independent 3-D spectral likelihood cubes are the information product used by every later decomposition stage. A clean-looking local minimum is not, by itself, a disk assignment.
+
+## `RH3_single_component_velocity.png`
 
 **Script:** 03  
+**Helper:** `plot_bin_value_map()`  
 **Class:** QC + science comparison
 
 ### Purpose
 
-Preliminary single-LOSVD stellar velocity map used to verify the global rotation pattern and inform PA/systemic-velocity initialization.
+Maps the single-LOSVD stellar velocity fit in every BL-defined master PowerBin, using the same XSL basis, LSF, fixed good pixels, and continuum convention as the two-component likelihood calculation.
+
+### Healthy result
+
+A coherent large-scale rotation pattern is present where the data contain useful stellar information. Individual outer bins may be noisy; this map is not spatially regularized.
+
+### Warning signs
+
+Large isolated velocity excursions, widespread bound-sensitive fits, or structure inconsistent with the raw spectra should trigger inspection of wavelength zero points, the LSF, and the fixed fit mask before Script 4.
 
 ---
 
-## `RH3_single_sigma_map.png`
+## `RH3_single_component_sigma.png`
 
 **Script:** 03  
+**Helper:** `plot_bin_value_map()`  
 **Class:** critical geometry input + possible publication figure
 
 ### Purpose
 
-High-resolution KCWI measurement of the single-component stellar dispersion morphology, including the two $2\sigma$ peaks.
+Maps the independent one-component stellar dispersion measurements. For real RH3 data this is the higher-resolution starting point for locating the $2\sigma$ morphology used by the later radial-domain analysis.
 
-### Overlays
+### Important limitation
 
-- center;
-- $PA_{\mathrm{kin}}$;
-- measured positive/negative $2\sigma$ locations;
-- MaNGA $2\sigma$ locations for comparison if useful.
-
-### Scientific role
-
-The measured outer peak radius drives the primary Script-4 $R_{\mathrm{final}}$ definition.
+The present Script-3 run uses a development diagonal noise model; formal likelihood widths/errors are not publication-final until residual variance/covariance is calibrated. The map itself is still useful for first-pass morphology and integration testing.
 
 ---
 
-## `RH3_2sigma_radial_profile.png`
+## `RH3_local_best_VA.png` / `RH3_local_best_VB.png`
 
 **Script:** 03  
-**Class:** QC + methods
+**Helper:** `plot_bin_value_map()`  
+**Class:** analysis diagnostic only
 
 ### Purpose
 
-Extracts/visualizes single-component $\sigma_\star$ along the signed kinematic major axis so that positive and negative $2\sigma$ peak radii can be measured reproducibly rather than by eye from the 2-D map alone.
+Displays the exact velocity-grid coordinates of the **independent minimum of each individual PowerBin's 3-D cube**.
 
-### Axes
+### Interpretation
 
-- x: signed major-axis coordinate, arcsec;
-- y: single-component $\sigma_\star$, km/s.
+These maps are deliberately allowed to look ragged, swap components, or jump between secondary minima. Script 3 has imposed no spatial coherence. Their scientific role is to show what each spectrum independently prefers before Script 4 asks whether a globally coherent two-disk trajectory can pass through the likelihood surfaces.
 
-### Overlays
-
-- peak positions;
-- PSF FWHM scale;
-- adopted max-radius value.
+Do not interpret the labels A/B here as final physical disk identities.
 
 ---
 
-## `RH3_likelihood_bin_XXXX.png`
+## `RH3_local_best_fA.png`
 
 **Script:** 03  
+**Helper:** `plot_bin_value_map()`  
+**Class:** analysis diagnostic only
+
+### Quantity
+
+The explicit fraction-grid coordinate of the independent local cube minimum.
+
+### Definition
+
+Every XSL SSP is independently normalized to unit mean stellar flux density over `RH3_FIT_REST_RANGE_ANGSTROM` before the basis is duplicated into components A and B. Therefore the grid variable
+
+$$
+f_{A,\mathrm{RH3}}
+=
+\frac{\sum_jw_{A,j}}{\sum_jw_{A,j}+\sum_jw_{B,j}}
+$$
+
+is the fraction of fitted **stellar-template light** assigned to component A over the RH3 fitting passband. It is not a mass fraction, and the additive polynomial is excluded from the component-light definition.
+
+### Warning signs
+
+A large fraction of local minima at 0.1 or 0.9 can mean the data frequently prefer an effectively one-component solution, the fraction grid is truncating a profile, or the decomposition is weak. Component swaps naturally map $f_A\leftrightarrow1-f_A$ and are not resolved until Script 4.
+
+---
+
+## `RH3_local_best_sigmaA.png` / `RH3_local_best_sigmaB.png`
+
+**Script:** 03  
+**Helper:** `plot_bin_value_map()`  
+**Class:** QC + analysis diagnostic
+
+### Purpose
+
+Shows the nuisance dispersions profiled at each bin's independent local 3-D minimum.
+
+### Warning signs
+
+Values repeatedly close to the configured 5 or 250 km/s bounds indicate that the nuisance profile may be truncated or that a two-component state is using an extreme width to compensate for an inappropriate velocity/fraction hypothesis.
+
+Use `RH3_sigma_boundary_fraction.png` to see whether bound contact is isolated or widespread through the full cube.
+
+---
+
+## `RH3_local_one_vs_two_delta_chi2.png`
+
+**Script:** 03  
+**Helper:** `plot_bin_value_map()`  
+**Class:** QC; **not** a formal significance map
+
+### Quantity
+
+$$
+T_i
+=
+\chi^2_{1C,i}
+-
+\min_{V_A,V_B,f_A}\chi^2_{2C,i}.
+$$
+
+Both terms use the same fixed fitted pixels and formal diagonal uncertainty vector.
+
+### Interpretation
+
+Positive values mean that the best local two-component grid state fits better than the one-component control. Do **not** label this as a p-value or a sigma detection. The mapping from $T_i$ to reliable two-component recovery must be calibrated with injection/recovery mocks.
+
+---
+
+## `RH3_grid_failure_fraction.png`
+
+**Script:** 03  
+**Helper:** `plot_bin_value_map()`  
+**Class:** critical numerical QC
+
+### Quantity
+
+Fraction of the configured $V_A\times V_B\times f_A$ states in each PowerBin that did not produce a valid exact pPXF state.
+
+A healthy production calculation should normally be zero or extremely small. Coherent regions of failures indicate a numerical, masking, template-coverage, or bound problem that should be resolved before Script 4.
+
+---
+
+## `RH3_sigma_boundary_fraction.png`
+
+**Script:** 03  
+**Helper:** `plot_bin_value_map()`  
+**Class:** numerical + scientific QC
+
+### Quantity
+
+Fraction of exact grid states whose profiled $\sigma_A$ or $\sigma_B$ lies within `RH3_SIGMA_BOUNDARY_WARNING_KMS` of the configured 5--250 km/s nuisance bounds.
+
+### Interpretation
+
+Some poor high-$\chi^2$ hypotheses can naturally profile to an extreme sigma and are not automatically a problem. A large boundary fraction **near the supported likelihood basin**, however, means the nuisance parameter range may be affecting the likelihood geometry and must be investigated.
+
+---
+
+## `RH3_likelihood_bins/bin_XXXX.png`
+
+**Script:** 03  
+**Helper:** `plot_rh3_likelihood_bin()`  
 **Class:** per-bin analysis diagnostic
 
 ### Purpose
 
-Representative view of the 3-D profile-likelihood cube for one PowerBin.
+Provides a compact inspection of the independent 3-D profile-likelihood cube and its corresponding spectrum.
 
-### Recommended panels
+### Implemented content
 
-1. profiled $\Delta\chi^2(V_A,V_B)$, minimizing over RH3 $f_A$;
-2. best $f_A(V_A,V_B)$;
-3. best $\sigma_A(V_A,V_B)$;
-4. best $\sigma_B(V_A,V_B)$.
+The figure profiles the 3-D total-$\chi^2$ cube over $f_A$ to show the $V_A/V_B$ likelihood structure, displays the best fraction across velocity space, marks the independent local cube minimum, and compares the one-component and local-best two-component spectral models/residuals on the same fixed good pixels.
 
-### Interpretation
+### Healthy result
 
-Reveals whether the two-component solution is sharp, elongated/degenerate, multimodal, component-swapped, or poorly constrained.
+High-information bins can show a localized or clearly structured minimum/basin. Lower-information bins may legitimately show broad valleys or near-symmetries. That breadth is information and should not be "cleaned" by propagating neighboring starting guesses.
 
 ### Warning signs
 
-Likelihood minimum on a grid edge, multiple nearly disconnected minima, or a nearly featureless surface.
+- minimum on a velocity/fraction-grid edge;
+- widespread failed cells;
+- local best fit visibly poor despite a numerical minimum;
+- a nearly featureless surface in a bin being described as an independent two-component detection;
+- a sharp surface whose width is trusted before the noise/covariance model is calibrated.
 
 ---
 
-## `RH3_one_vs_two_component_delta_chi2_initial.png`
+## Numerical companions for Script 3
 
-**Script:** 03  
-**Class:** QC
+### `products/RH3_likelihood_cubes.npz`
 
-Maps the raw one-vs-two-component statistic before mock calibration:
+The fundamental per-state scalar product. It contains the full total-$\chi^2$, reduced-$\chi^2$, $\sigma_A$, $\sigma_B$, fit-status, and sigma-boundary arrays plus all three grid axes.
 
-$$
-T_i=\chi^2_{1\mathrm{comp},i}-\chi^2_{2\mathrm{comp},i}.
-$$
+### `products/RH3_log_spectra_and_local_best_fits.npz`
 
-It must not be labeled as a formal significance/p-value map.
+Stores the fixed log-rebinned spectra/noise/masks together with the complete one-component model and the independent local-best two-component model/template weights for every bin.
+
+### `products/RH3_local_likelihood_summary.ecsv`
+
+Human-readable per-bin table containing the one-component control, local cube minimum, achieved-vs-requested $f_A$ check, local $\Delta\chi^2$, failed-state counts, and sigma-boundary-state counts.
+
+### `products/XSL_RH3_templates.npz`
+
+Records the actual LSF-matched, log-rebinned, passband-normalized XSL basis used by the run, including the template normalization factors and target/template/convolution FWHM arrays.
+
+### Restart checkpoints
+
+During an incomplete run, `checkpoints/bin_XXXX.npz` files are the atomic restart units used by `--resume`. They are deleted only after a complete successful consolidation and manifest write when `SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS=True`.
 
 ---
 
 ## `RH3_grid_resolution_comparison.png`
 
-**Script:** 03 / validation runs  
-**Class:** critical method-validation diagnostic
+**Script:** later Script-3 validation utility/run  
+**Class:** critical method-validation diagnostic; **not yet implemented by the baseline driver**
 
 ### Purpose
 
-Compares representative coarse and fine profile-likelihood grids to demonstrate that 17×17×9 sampling does not materially alter the selected kinematic solution or basin topology.
-
-### Suggested panels
-
-- coarse profiled $\Delta\chi^2$;
-- fine profiled $\Delta\chi^2$;
-- interpolated difference / minimum locations.
-
-### Action
-
-If solutions shift materially, the coarse production grid is not acceptable and should be refined.
+Compare representative coarse and finer profile-likelihood grids to demonstrate that the baseline 17×17×9 grid does not materially alter the selected basin topology. If the topology or global solution moves materially, the production grid must be refined.
 
 ---
 

@@ -470,104 +470,281 @@ A flag is not an instruction to tune parameters until the warning disappears. It
 
 ## 6.1 Main product
 
-For every PowerBin construct
+For every BL-defined master PowerBin, construct the complete independent spectral surface
 
 $$
-\chi_i^2(V_A,V_B,f_{A,\mathrm{RH3}}).
+\boxed{\chi_i^2(V_A,V_B,f_{A,\mathrm{RH3}})}.
 $$
 
-The explicit grid is initially planned at approximately
+The baseline grid is
 
 $$
 17\times17\times9,
 $$
 
-but the final grid resolution/extent must pass convergence tests.
+with the velocity and fraction axes defined by the target configuration. The final grid extent/resolution must still pass later convergence tests; Script 3 preserves the full coarse cube so that those tests do not require changing the global-disk logic.
 
-## 6.2 Meaning of a grid cell
+Script 3 does **not** impose spatial coherence. Every PowerBin is interrogated independently. Component identity and the physically coherent trajectory through these independent cubes enter only in Script 4.
 
-At a fixed grid coordinate
+## 6.2 Exact meaning of a grid coordinate
+
+At a grid coordinate
 
 $$
 (V_A,V_B,f_A),
 $$
 
-those three parameters define the profile coordinate. pPXF optimizes nuisance quantities such as
+all three quantities are fixed exactly. In particular, this is intentionally different from the earlier Mitzkus-style development grid in which pPXF could move each velocity by half a grid cell.
+
+For Script 3, pPXF is called with the component velocities fixed and profiles only over nuisance quantities including
 
 $$
-\sigma_A,\quad\sigma_B,
+\sigma_A,\qquad \sigma_B,
 $$
 
-stellar-template mixtures, and continuum terms.
+the stellar-template weights within each component, and the additive-continuum coefficients.
 
-The result is therefore a **profile likelihood**, not a fully marginalized Bayesian posterior.
+The complete $V_A/V_B$ plane is retained, including $V_A=V_B$ and the component-swapped half of the cube. The symmetry
 
-## 6.3 Full XSL SSP library
+$$
+(V_A,V_B,f_A)\longleftrightarrow(V_B,V_A,1-f_A)
+$$
 
-Use the full selected XSL SSP grid for RH3 rather than reducing the template basis purely to save computation time. Scientific completeness is prioritized over runtime.
+is therefore preserved rather than broken locally. Script 4 assigns physical Disk A/B identities from the global spatial solution.
+
+## 6.3 Statistical interpretation: profile likelihood
+
+Because nuisance parameters are optimized at every explicit $(V_A,V_B,f_A)$ coordinate, the Script-3 surface is a **profile likelihood**, not a fully marginalized Bayesian posterior.
+
+The fundamental statistic saved by the cube is the **total** chi-square on the fixed fitted pixels,
+
+$$
+\chi^2_{\rm total}
+=
+\sum_{p\in\mathrm{good}}
+\left[\frac{F_p-M_p}{\sigma_p}\right]^2
+$$
+
+for the current diagonal-noise development model. pPXF's reduced $\chi^2$ is retained as QC, but downstream relative-likelihood calculations must use differences in total chi-square.
+
+When later writing
+
+$$
+w_c\propto\exp(-\Delta\chi_c^2/2),
+$$
+
+these are called **relative-likelihood weights**, not posterior probabilities.
+
+## 6.4 RH3 fitting interval and fixed fitted pixels
+
+The production template configuration uses
+
+```python
+RH3_FIT_REST_RANGE_ANGSTROM = (8470.0, 8900.0)
+```
+
+for the RH3 kinematic fit. This is deliberately separate from `RH3_SN_REST_RANGE_ANGSTROM`, which is a Script-2 continuum/S/N and spatial-light-weight reference window rather than the Script-3 science fit interval.
+
+The current `8143-1902.py` integration fixture contains RL rather than RH3 data, so it temporarily uses a broad interior RL Script-3 fit interval. This is an integration-test override only; the production template keeps the CaT-region RH3 interval above.
+
+For each PowerBin, Script 3 constructs one fixed `goodpixels` set from:
+
+- Script-2 spectral validity;
+- the configured Script-3 rest-frame fitting interval;
+- the empirically supported Script-1 LSF interval;
+- finite positive formal uncertainty;
+- optional configured observed-frame sky/telluric masks;
+- optional configured rest-frame masks.
+
+That identical pixel set is used by the one-component control and by **every** two-component grid state in the bin. `clean=True` or state-dependent clipping is not allowed in the likelihood cube because allowing different states to discard different pixels would make their total chi-square values non-comparable.
+
+## 6.5 Wavelength / velocity convention
+
+The Script-2 observed wavelength vector is brought close to the galaxy rest frame using the configured target redshift. The science wavelength medium is validated from the prepared Script-1 product and converted to the configured XSL/template medium when required.
+
+The Script-3 velocity coordinates therefore represent residual LOS velocities relative to the adopted target redshift. Any small error in that initial systemic redshift is handled later by the free global $V_{\rm sys}$ parameter in Script 4.
+
+The galaxy and templates are supplied to pPXF with their explicit wavelength arrays. No additional `vsyst` offset is introduced in this rest-frame construction.
+
+## 6.6 Full XSL SSP basis and empirical LSF matching
+
+Use the **full XSL SSP grid** for RH3 rather than reducing the basis purely for speed.
 
 The RH3-prepared template matrix is produced by:
 
-1. loading the selected XSL SSP library;
-2. retaining the needed age/metallicity metadata;
-3. ensuring wavelength coverage safely brackets the observed/rest-frame fitting region and allowed velocity shifts;
-4. converting wavelength medium if needed;
-5. matching the measured RH3 LSF;
-6. applying a common normalization convention;
-7. log-rebinning consistently for pPXF.
+1. loading the complete configured XSL SSP library;
+2. cropping to the science interval plus velocity/dispersion padding;
+3. evaluating the Script-1 empirical wavelength-dependent RH3 LSF only inside its measured arc-line support;
+4. broadening the XSL templates in quadrature where the data LSF is broader;
+5. applying the fixed light-fraction normalization convention below;
+6. log-rebinning at the same velocity scale as the galaxy spectrum.
 
-## 6.4 No regularization in likelihood fits
-
-Any fit whose $\chi^2$ enters the RH3 likelihood cube must use
+The pipeline must **not** take an absolute value when
 
 $$
-\mathrm{regul}=0.
+\mathrm{FWHM}_{\rm data}^2-\mathrm{FWHM}_{\rm template}^2<0.
 $$
 
-Regularization may later be used to visualize smooth star-formation histories, but not to define the likelihood surfaces.
+If the XSL SSP basis is intrinsically broader than the real RH3 data over part of the required interval, Script 3 currently hard-fails and reports the incompatibility rather than silently degrading or misrepresenting the spectral resolution. A future production treatment may broaden the galaxy to a validated common target LSF, but that operation must also propagate the resulting noise covariance and should be adopted explicitly rather than hidden inside template preparation.
 
-## 6.5 Saved nuisance information
+## 6.7 Definition of $f_{A,\mathrm{RH3}}$
 
-Storage minimization is not a scientific goal. Save all scalar products that materially help later interpretation, such as:
+This convention is scientifically important and must remain explicit.
 
-- $\chi^2$;
-- reduced $\chi^2$ where meaningful;
+Before the XSL basis is duplicated into components A and B, **each SSP spectrum is independently normalized to unit mean stellar flux density over the fixed Script-3 RH3 fitting interval**:
+
+$$
+\left\langle T_j(\lambda)\right\rangle_{\lambda\in\mathrm{RH3\ fit\ band}}=1.
+$$
+
+Both components then receive identical copies of this normalized SSP basis. pPXF's two-component `fraction` constraint is
+
+$$
+f_{A,\mathrm{RH3}}
+=
+\frac{\sum_j w_{A,j}}
+{\sum_j w_{A,j}+\sum_j w_{B,j}}.
+$$
+
+Because all SSPs share the same passband normalization, this has the intended interpretation:
+
+> **$f_{A,\mathrm{RH3}}$ is the fraction of fitted stellar-template light assigned to component A over the RH3 fitting passband.**
+
+It is **not** a stellar-mass fraction. The additive polynomial is a nuisance continuum term and is not counted as either disk's stellar light. Script 6 defines an analogous BL light fraction over the usable BL passband, and therefore
+
+$$
+f_{A,\mathrm{RH3}}\neq f_{A,\mathrm{BL}}
+$$
+
+is physically allowed and potentially informative about different disk stellar populations.
+
+The achieved fraction reconstructed from the returned component template weights is saved as QC and compared with the requested grid fraction.
+
+## 6.8 Dispersion and continuum nuisance parameters
+
+The baseline Script-3 dispersion settings are
+
+```python
+RH3_SIGMA_START_KMS = 60.0
+RH3_SIGMA_MIN_KMS = 5.0
+RH3_SIGMA_MAX_KMS = 250.0
+```
+
+The extended 250 km/s upper bound is intentionally generous. If a state wants a very broad component, the pipeline should expose that behavior rather than skewing the profile likelihood by forcing it against the older 180 km/s simulation bound. States within the configured warning distance of either sigma bound are flagged and counted.
+
+The baseline kinematic continuum treatment is
+
+```python
+RH3_DEGREE = 4
+RH3_MDEGREE = 0
+```
+
+and
+
+```python
+RH3_REGUL = 0.0
+```
+
+for every fit whose chi-square enters the likelihood cube.
+
+## 6.9 Current noise model and required later recalibration
+
+The first Script-3 development pass uses the formal diagonal Script-2 uncertainty vector after overlap-based log rebinning. It deliberately does **not** rescale each bin's noise to force reduced $\chi^2=1$, because doing so could absorb real model mismatch and give different bins arbitrarily rescaled likelihood widths.
+
+This is sufficient to develop the code, inspect the location/topology of minima, and obtain first-pass residuals. However, the run is explicitly marked
+
+```text
+RH3_LIKELIHOOD_WIDTH_UNCALIBRATED
+```
+
+because the absolute $\Delta\chi^2$ scale controls
+
+$$
+\exp(-\Delta\chi^2/2).
+$$
+
+After the first-pass stellar fits, the residual variance scale and wavelength covariance must be revisited. The real production Script-3 likelihood widths are not considered final until a defensible noise/covariance model is adopted and Script 3 is rerun.
+
+The present RL integration fixture is not expected to be an ideal CRD-decomposition dataset; its residuals are still useful for exercising this machinery, but should not by themselves define the final RH3 covariance prescription.
+
+## 6.10 One-component control
+
+Each PowerBin also receives a single stellar LOSVD fit using exactly the same:
+
+- XSL basis;
+- fitting interval;
+- LSF matching;
+- log pixels;
+- formal noise model;
+- polynomial convention.
+
+This saves
+
+$$
+V_{\star,1C},\qquad\sigma_{\star,1C},\qquad\chi^2_{1C}.
+$$
+
+The local raw comparison
+
+$$
+T_i
+=
+\chi^2_{1C,i}
+-
+\min_{V_A,V_B,f_A}\chi^2_{2C,i}
+$$
+
+is useful QC but is **not** converted directly into a textbook p-value. Secure two-component recovery is calibrated with mocks because mixture-model regularity assumptions are not guaranteed here.
+
+The single-component velocity/dispersion maps also provide higher-resolution RH3 context for the later global geometry and $2\sigma$ structure.
+
+## 6.11 Saved products
+
+For every grid state, Script 3 retains scalar products needed by downstream inference:
+
+- total $\chi^2$;
+- reduced $\chi^2$ QC;
 - $\sigma_A$;
 - $\sigma_B$;
-- fit-status flags;
-- relevant continuum/quality summaries;
-- enough template-weight information to reconstruct scientifically important selected states.
+- fit-status code;
+- sigma-boundary flag.
 
-Full model spectra/template weights may be saved broadly if storage permits; at minimum they must be saved for scientifically selected and diagnostic solutions.
+The consolidated product also saves the full one-component model and the **independent local two-component cube minimum** for every bin, including model spectra and template weights. These local minima are diagnostics only; they are not yet the physical globally labeled disks.
 
-## 6.6 One-component control
+The primary products are:
 
-Also fit a single stellar LOSVD per PowerBin to obtain
+```text
+products/RH3_likelihood_cubes.npz
+products/RH3_log_spectra_and_local_best_fits.npz
+products/RH3_local_likelihood_summary.ecsv
+products/XSL_RH3_templates.npz
+```
 
-$$
-\chi^2_{1\mathrm{comp},i}.
-$$
+The complete likelihood cubes are retained even though the temporary per-bin restart checkpoints are deleted after a successful consolidation.
 
-The one-vs-two-component statistic can be defined as
+## 6.12 Restartability and CPU workers
 
-$$
-T_i = \chi^2_{1\mathrm{comp}, i} - \chi^2_(2\mathrm{comp},i}.
-$$
+One completed PowerBin is the atomic restart checkpoint:
 
+```text
+checkpoints/bin_0000.npz
+checkpoints/bin_0001.npz
+...
+```
 
-A textbook $\chi^2$ p-value is **not** assumed because mixture-model regularity conditions may fail. Significance/reliability is calibrated from mocks in Script 5/model-selection utilities.
+If a run is interrupted, those files remain and the same run can be continued with `--resume`. The config file is SHA-256 checked before resuming so incompatible settings cannot be mixed in one likelihood product.
 
-## 6.7 Preliminary single-component RH3 maps
+After every bin has completed and **all consolidated numerical products plus the Script-3 manifest have been written successfully**, the checkpoint directory is deleted by default:
 
-Before fixing the final Script-4 radial domain, construct simple single-component RH3 maps
+```python
+SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS = True
+```
 
-$$
-V_{\star,\mathrm{single}}(x,y),
-\qquad
-\sigma_{\star,\mathrm{single}}(x,y).
-$$
+This retains crash safety without permanently duplicating the final likelihood data.
 
-These provide a higher-resolution KCWI measurement of the $2\sigma$ structure than the initial MaNGA map.
+`--workers N` launches $N$ Python worker processes and caps BLAS/OpenMP thread pools to one thread per worker before NumPy/pPXF import. Thus `--workers 3` on a four-core laptop is intended to use approximately three compute cores while leaving capacity for the operating system. This is not hard CPU-affinity pinning; the operating system remains responsible for scheduling.
+
+No `--bins` or `--max-bins` interface is part of the baseline implementation at this stage.
 
 ---
 

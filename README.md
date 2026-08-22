@@ -2,7 +2,7 @@
 
 **CRD_DAP** is a research pipeline for decomposing counter-rotating stellar disks (CRDs) observed with Keck/KCWI/KCRM. The project is being developed around paired BL and RH3 observations and is designed to preserve as much of the spectral likelihood information as possible from the high-resolution RH3 kinematic fits before propagating those constraints into two-component stellar-population fits in BL.
 
-The repository contains the configuration, logging, validation, diagnostic-documentation architecture, the `crd_utils` helper package, and the implemented first science-driver stage, `scripts/01_prepare_and_register_cubes.py`. Later science-driver scripts described in `METHODS.md` will be implemented sequentially.
+The repository contains the configuration, logging, validation, diagnostic-documentation architecture, the `crd_utils` helper package, and implemented science-driver stages 01--03: cube preparation/registration, master BL PowerBins, and independent RH3 profile-likelihood cubes. Later science-driver scripts described in `METHODS.md` will be implemented sequentially.
 
 ## Scientific design in one sentence
 
@@ -44,14 +44,26 @@ CRD_DAP/
 │   └── plotting.py
 ├── scripts/
 │   ├── README.md
-│   └── 01_prepare_and_register_cubes.py
+│   ├── 01_prepare_and_register_cubes.py
+│   ├── 02_make_master_BL_bins.py
+│   └── 03_build_RH3_likelihood_cubes.py
 ├── tests/
 ├── examples/
 ├── data/
 │   ├── README.md
-│   └── 01_prepare_and_register_cubes.py
+│   ├── 01_prepare_and_register_cubes.py
+│   ├── 02_make_master_BL_bins.py
+│   └── 03_build_RH3_likelihood_cubes.py
 └── runs/
 ```
+
+
+## Current implementation status
+
+- **Script 01:** implemented and integration-tested on the current KcwiKit BL+RL development dataset.
+- **Script 02:** implemented and integration-tested; BL defines one master PowerBin tessellation and the same physical memberships are transferred to the red/RH3 stream.
+- **Script 03:** implemented for exact independent `(V_A,V_B,f_A,RH3)` profile-likelihood cubes, one-component controls, empirical-LSF XSL preparation, restart checkpoints, and multiprocessing. The first development pass uses formal diagonal spectral uncertainties and explicitly marks likelihood widths as uncalibrated until residual variance/covariance is revisited.
+- **Scripts 04--07:** design documented; implementation follows after Script-3 integration testing.
 
 ## Intended science scripts
 
