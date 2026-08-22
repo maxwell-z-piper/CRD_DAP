@@ -335,8 +335,32 @@ SN_PLOT_UPPER_PERCENTILE = 95.0
 # 10. SCRIPT 3: RH3 LIKELIHOOD CUBES
 # =============================================================================
 
-# Velocity-grid arrays will be constructed inclusively from min/max/number of
-# points. The exact extent/resolution must later pass a grid-convergence test.
+# Science fitting interval, in the REST FRAME and in the template wavelength
+# medium.  This is deliberately separate from RH3_SN_REST_RANGE_ANGSTROM:
+# Script 2 uses the latter only as a continuum/S/N and spatial-light-weight
+# reference window, while Script 3 fits the complete interval below.  For the
+# intended RH3 experiment this interval contains the Ca II triplet plus nearby
+# metal-line information used in the injection/recovery tests.
+RH3_FIT_REST_RANGE_ANGSTROM = (8470.0, 8900.0)
+
+# Optional explicit masks. Observed-frame masks are useful for persistent sky /
+# telluric residuals; rest-frame masks are useful for target-independent stellar
+# or reduction features. Script 3 constructs one fixed good-pixel set per bin
+# and uses that identical set for the 1-component control and every 2-component
+# grid state. It never state-dependently sigma-clips the spectrum.
+RH3_MASK_OBSERVED_RANGES_ANGSTROM = []
+RH3_MASK_REST_RANGES_ANGSTROM = []
+
+# If None, Script 3 adopts the median native log-lambda sampling of the prepared
+# RH3 spectrum. An explicit value is allowed for controlled convergence tests.
+RH3_VELSCALE_KMS = None
+RH3_LOG_REBIN_MIN_VALID_FRACTION = 0.50
+RH3_MIN_GOOD_LOG_PIXELS = 50
+
+# Velocity-grid arrays are constructed inclusively from min/max/number of
+# points. These are exact profile-likelihood coordinates: pPXF is NOT permitted
+# to wander by half a velocity cell. The exact extent/resolution must later pass
+# a grid-convergence test.
 RH3_VA_MIN_KMS = -400.0
 RH3_VA_MAX_KMS = 400.0
 RH3_VA_N = 17
@@ -349,12 +373,60 @@ RH3_FA_MIN = 0.10
 RH3_FA_MAX = 0.90
 RH3_FA_STEP = 0.10
 
-# Use the full selected XSL SSP grid for RH3 rather than reducing the template
-# library purely for speed. Scientific completeness takes priority over runtime.
+# f_A,RH3 DEFINITION
+# -------------------
+# Every XSL SSP is independently normalized to unit MEAN stellar flux density
+# over RH3_FIT_REST_RANGE_ANGSTROM before the SSP basis is duplicated into
+# components A and B. With that common normalization, pPXF's `fraction=f_A`
+# constrains the fraction of fitted STELLAR TEMPLATE LIGHT assigned to component
+# A over this RH3 passband. It is NOT a stellar-mass fraction, and the additive
+# polynomial is a nuisance term that is not included in f_A. The BL analysis
+# defines its own passband light fraction, so f_A,RH3 need not equal f_A,BL.
+RH3_FRACTION_CONSTRAINT_TOLERANCE = 1.0e-5
+
+# The two component dispersions remain nuisance parameters in every grid state.
+# The generous 250 km/s upper bound is intentional: a state that wants an
+# implausibly broad component should be exposed and flagged rather than being
+# artificially forced against the older 180 km/s simulation bound.
+RH3_SIGMA_START_KMS = 60.0
+RH3_SIGMA_MIN_KMS = 5.0
+RH3_SIGMA_MAX_KMS = 250.0
+RH3_SIGMA_BOUNDARY_WARNING_KMS = 2.0
+
+# Single-LOSVD control fit. The control is evaluated on exactly the same log
+# pixels, XSL basis, LSF, uncertainty model, and polynomial convention as the
+# two-component cube. Its velocity bounds extend slightly beyond the 2-C grid.
+RH3_SINGLE_VELOCITY_START_KMS = 0.0
+RH3_SINGLE_VELOCITY_MARGIN_KMS = 200.0
+
+# Kinematic continuum treatment adopted from the validated RH3 simulations.
+# Additive degree 4 is allowed to absorb modest continuum mismatch; no
+# multiplicative polynomial is used in this kinematic stage.
+RH3_DEGREE = 4
+RH3_MDEGREE = 0
+
+# Use the full XSL SSP grid for RH3 rather than reducing the template library
+# purely for speed. Scientific completeness takes priority over runtime.
 RH3_USE_FULL_XSL_SSP_GRID = True
 
 # Fits whose chi^2 values enter likelihood calculations must be unregularized.
 RH3_REGUL = 0.0
+
+# Templates must extend far enough beyond the science interval that all velocity
+# grid coordinates and dispersion kernels remain supported. The padding is
+# max(|V_grid|) + RH3_TEMPLATE_PADDING_SIGMA * RH3_SIGMA_MAX_KMS.
+RH3_TEMPLATE_PADDING_SIGMA = 4.0
+
+# Development noise model: Script 3 presently uses the formal diagonal Script-2
+# uncertainty vector after overlap log rebinning. Its minimum/topology are useful
+# now, but the exp(-Delta chi2/2) WIDTH is explicitly not publication-final until
+# residual variance scaling / spectral covariance are calibrated and Script 3 is
+# rerun. No automatic chi2-to-one rescaling is performed.
+
+# Restartability: one completed PowerBin is one checkpoint. Interrupted runs keep
+# checkpoints for --resume. After ALL final products and the manifest are written
+# successfully, delete them to avoid permanently duplicating the likelihood data.
+SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS = True
 
 # =============================================================================
 # 11. SCRIPT 4: GLOBAL XOOKSUUT-STYLE DISK MODEL
