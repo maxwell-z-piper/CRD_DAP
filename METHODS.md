@@ -734,6 +734,8 @@ checkpoints/bin_0001.npz
 
 If a run is interrupted, those files remain and the same run can be continued with `--resume`. The config file is SHA-256 checked before resuming so incompatible settings cannot be mixed in one likelihood product.
 
+Script 3 normally obtains the Script-1 provenance path from `source_script1_run` in the Script-2 manifest. Because users may rename or move completed run directories during development, the driver also accepts `--script1-run <path>`. An explicit Script-1 path overrides the stale manifest path and is recorded in the Script-3 resume state and final manifest. If completed per-bin checkpoints already exist, changing the Script-1 provenance during `--resume` is refused because it could mix different wavelength/LSF assumptions. If no per-bin checkpoint exists yet, the path may be corrected safely.
+
 After every bin has completed and **all consolidated numerical products plus the Script-3 manifest have been written successfully**, the checkpoint directory is deleted by default:
 
 ```python

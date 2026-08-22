@@ -63,6 +63,7 @@ CRD_DAP/
 - **Script 01:** implemented and integration-tested on the current KcwiKit BL+RL development dataset.
 - **Script 02:** implemented and integration-tested; BL defines one master PowerBin tessellation and the same physical memberships are transferred to the red/RH3 stream.
 - **Script 03:** implemented for exact independent `(V_A,V_B,f_A,RH3)` profile-likelihood cubes, one-component controls, empirical-LSF XSL preparation, restart checkpoints, and multiprocessing. The first development pass uses formal diagonal spectral uncertainties and explicitly marks likelihood widths as uncalibrated until residual variance/covariance is revisited.
+  Script 3 can take both `--script1-run` and `--script2-run` explicitly, which is useful when completed upstream run directories have been moved or renamed and older manifest paths are stale.
 - **Scripts 04--07:** design documented; implementation follows after Script-3 integration testing.
 
 ## Intended science scripts
