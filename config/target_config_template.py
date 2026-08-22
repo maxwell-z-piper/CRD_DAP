@@ -412,9 +412,13 @@ RH3_USE_FULL_XSL_SSP_GRID = True
 # Fits whose chi^2 values enter likelihood calculations must be unregularized.
 RH3_REGUL = 0.0
 
-# Templates must extend far enough beyond the science interval that all velocity
-# grid coordinates and dispersion kernels remain supported. The padding is
-# max(|V_grid|) + RH3_TEMPLATE_PADDING_SIGMA * RH3_SIGMA_MAX_KMS.
+# Templates must extend beyond the science interval far enough for BOTH fitting
+# domains: (1) every exact two-component velocity-grid coordinate and (2) the
+# genuinely free one-component control velocity bounds. Script 3 computes the
+# largest required |V| from those domains, then adds
+# RH3_TEMPLATE_PADDING_SIGMA * RH3_SIGMA_MAX_KMS plus a small fixed log-grid
+# edge-safety margin. This value therefore controls the LOSVD convolution margin
+# only; it is no longer combined with just max(|V_grid|).
 RH3_TEMPLATE_PADDING_SIGMA = 4.0
 
 # Development noise model: Script 3 presently uses the formal diagonal Script-2
