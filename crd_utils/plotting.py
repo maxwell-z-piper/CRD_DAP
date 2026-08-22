@@ -858,3 +858,106 @@ def plot_bin_transfer(
     axes[2].set_xlabel("RH3 spatial x pixel")
     axes[2].set_ylabel("RH3 spatial y pixel")
     return _finish(fig, path)
+
+
+def plot_rh3_likelihood_bin(
+    *,
+    va_grid: np.ndarray,
+    vb_grid: np.ndarray,
+    fa_grid: np.ndarray,
+    chi2_total: np.ndarray,
+    wavelength: np.ndarray,
+    galaxy: np.ndarray,
+    noise: np.ndarray,
+    good: np.ndarray,
+    one_model: np.ndarray,
+    two_model: np.ndarray,
+    output_path: str | Path,
+    bin_id: int,
+    one_chi2: float,
+    two_chi2: float,
+    best_state: tuple[float, float, float, float, float],
+) -> Path:
+    """Three-panel diagnostic for one Script-3 RH3 likelihood cube.
+
+    Panel 1 profiles total chi-square over ``f_A`` in the velocity plane. Panel
+    2 shows which discrete ``f_A`` minimizes each velocity pair. Panel 3 compares
+    the observed log-rebinned spectrum with the one-component and independent
+    local-best two-component fits.  No global disk-model information appears in
+    this figure; Script 3 remains a purely per-spectrum measurement stage.
+    """
+    va = np.asarray(va_grid, dtype=float)
+    vb = np.asarray(vb_grid, dtype=float)
+    fa = np.asarray(fa_grid, dtype=float)
+    chi = np.asarray(chi2_total, dtype=float)
+    wave = np.asarray(wavelength, dtype=float)
+    gal = np.asarray(galaxy, dtype=float)
+    good = np.asarray(good, dtype=bool)
+
+    finite = np.isfinite(chi)
+    prof = np.full(chi.shape[:2], np.nan, dtype=float)
+    best_f = np.full(chi.shape[:2], np.nan, dtype=float)
+    for ia in range(va.size):
+        for ib in range(vb.size):
+            row = chi[ia, ib, :]
+            ok = np.isfinite(row)
+            if np.any(ok):
+                jf = int(np.nanargmin(np.where(ok, row, np.nan)))
+                prof[ia, ib] = row[jf]
+                best_f[ia, ib] = fa[jf]
+    if np.any(np.isfinite(prof)):
+        delta = prof - np.nanmin(prof)
+    else:
+        delta = prof
+
+    fig = plt.figure(figsize=(15, 9))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.1])
+    ax0 = fig.add_subplot(gs[0, 0])
+    ax1 = fig.add_subplot(gs[0, 1])
+    ax2 = fig.add_subplot(gs[1, :])
+
+    extent = [va.min(), va.max(), vb.min(), vb.max()]
+    im0 = ax0.imshow(
+        delta.T,
+        origin="lower",
+        aspect="auto",
+        extent=extent,
+        interpolation="nearest",
+    )
+    fig.colorbar(im0, ax=ax0, label=r"profiled $\Delta\chi^2$ (min over $f_A$)")
+    ax0.set_xlabel(r"$V_A$ (km s$^{-1}$)")
+    ax0.set_ylabel(r"$V_B$ (km s$^{-1}$)")
+    ax0.set_title("Profiled RH3 likelihood surface")
+
+    im1 = ax1.imshow(
+        best_f.T,
+        origin="lower",
+        aspect="auto",
+        extent=extent,
+        interpolation="nearest",
+        vmin=float(np.nanmin(fa)),
+        vmax=float(np.nanmax(fa)),
+    )
+    fig.colorbar(im1, ax=ax1, label=r"best discrete $f_{A,\mathrm{RH3}}$")
+    ax1.set_xlabel(r"$V_A$ (km s$^{-1}$)")
+    ax1.set_ylabel(r"$V_B$ (km s$^{-1}$)")
+    ax1.set_title("Fraction degeneracy across velocity space")
+
+    ax2.plot(wave[good], gal[good], lw=0.7, label="RH3 spectrum")
+    if np.any(np.isfinite(one_model)):
+        ax2.plot(wave[good], np.asarray(one_model)[good], lw=1.0, label="1-component")
+    if np.any(np.isfinite(two_model)):
+        ax2.plot(wave[good], np.asarray(two_model)[good], lw=1.0, label="local-best 2-component")
+    ax2.set_xlabel("Rest-frame wavelength (Angstrom)")
+    ax2.set_ylabel("Normalized flux density")
+    ax2.legend(fontsize=9)
+
+    va_best, vb_best, fa_best, sa_best, sb_best = best_state
+    fig.suptitle(
+        f"RH3 likelihood bin {int(bin_id)} | local independent minimum: "
+        f"V_A={va_best:.0f}, V_B={vb_best:.0f} km/s, f_A={fa_best:.2f}, "
+        f"sigma_A={sa_best:.1f}, sigma_B={sb_best:.1f} km/s | "
+        f"Delta chi2(1-2)={one_chi2 - two_chi2:.2f}"
+    )
+    fig.tight_layout()
+    return _finish(fig, output_path)

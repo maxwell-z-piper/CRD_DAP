@@ -277,6 +277,72 @@ def validate_config(cfg: PipelineConfig, *, strict_paths: bool = True) -> None:
     if not 0.0 < sn_pct <= 100.0:
         raise ValueError("SN_PLOT_UPPER_PERCENTILE must lie in (0, 100].")
 
+    # Script 3: exact RH3 profile-likelihood cube.
+    fit_range = getattr(cfg, "RH3_FIT_REST_RANGE_ANGSTROM", (8470.0, 8900.0))
+    if not isinstance(fit_range, (tuple, list)) or len(fit_range) != 2:
+        raise ValueError("RH3_FIT_REST_RANGE_ANGSTROM must be a two-element wavelength range.")
+    fit_lo, fit_hi = map(float, fit_range)
+    if not (fit_lo > 0 and fit_hi > fit_lo):
+        raise ValueError("RH3_FIT_REST_RANGE_ANGSTROM must contain positive increasing wavelengths.")
+
+    for key in ("RH3_MASK_OBSERVED_RANGES_ANGSTROM", "RH3_MASK_REST_RANGES_ANGSTROM"):
+        for interval in getattr(cfg, key, []):
+            if not isinstance(interval, (tuple, list)) or len(interval) != 2:
+                raise ValueError(f"Every {key} entry must be a two-element wavelength range.")
+            lo, hi = map(float, interval)
+            if not (lo > 0 and hi > lo):
+                raise ValueError(f"Every {key} entry must contain positive increasing wavelengths.")
+
+    velscale = getattr(cfg, "RH3_VELSCALE_KMS", None)
+    if velscale is not None and float(velscale) <= 0:
+        raise ValueError("RH3_VELSCALE_KMS must be positive or None.")
+    log_frac = float(getattr(cfg, "RH3_LOG_REBIN_MIN_VALID_FRACTION", 0.50))
+    if not 0.0 < log_frac <= 1.0:
+        raise ValueError("RH3_LOG_REBIN_MIN_VALID_FRACTION must lie in (0, 1].")
+    if int(getattr(cfg, "RH3_MIN_GOOD_LOG_PIXELS", 50)) < 10:
+        raise ValueError("RH3_MIN_GOOD_LOG_PIXELS must be >= 10.")
+
+    for prefix in ("RH3_VA", "RH3_VB"):
+        vmin = float(getattr(cfg, f"{prefix}_MIN_KMS", -400.0))
+        vmax = float(getattr(cfg, f"{prefix}_MAX_KMS", 400.0))
+        ngrid = int(getattr(cfg, f"{prefix}_N", 17))
+        if not vmax > vmin:
+            raise ValueError(f"{prefix}_MAX_KMS must exceed {prefix}_MIN_KMS.")
+        if ngrid < 2:
+            raise ValueError(f"{prefix}_N must be >= 2.")
+
+    fmin = float(getattr(cfg, "RH3_FA_MIN", 0.10))
+    fmax = float(getattr(cfg, "RH3_FA_MAX", 0.90))
+    fstep = float(getattr(cfg, "RH3_FA_STEP", 0.10))
+    if not (0.0 < fmin < fmax < 1.0):
+        raise ValueError("RH3_FA_MIN/MAX must satisfy 0 < min < max < 1 for pPXF fraction constraints.")
+    if fstep <= 0 or fstep > (fmax - fmin):
+        raise ValueError("RH3_FA_STEP must be positive and no larger than the configured fraction range.")
+
+    sstart = float(getattr(cfg, "RH3_SIGMA_START_KMS", 60.0))
+    smin = float(getattr(cfg, "RH3_SIGMA_MIN_KMS", 5.0))
+    smax = float(getattr(cfg, "RH3_SIGMA_MAX_KMS", 250.0))
+    if not (0 < smin < smax):
+        raise ValueError("RH3 sigma bounds must satisfy 0 < MIN < MAX.")
+    if not smin <= sstart <= smax:
+        raise ValueError("RH3_SIGMA_START_KMS must lie within the configured sigma bounds.")
+    if float(getattr(cfg, "RH3_SIGMA_BOUNDARY_WARNING_KMS", 2.0)) < 0:
+        raise ValueError("RH3_SIGMA_BOUNDARY_WARNING_KMS cannot be negative.")
+    if int(getattr(cfg, "RH3_DEGREE", 4)) < -1:
+        raise ValueError("RH3_DEGREE must be >= -1.")
+    if int(getattr(cfg, "RH3_MDEGREE", 0)) < 0:
+        raise ValueError("RH3_MDEGREE cannot be negative.")
+    if float(getattr(cfg, "RH3_REGUL", 0.0)) != 0.0:
+        raise ValueError("RH3_REGUL must be 0.0 because likelihood-grid chi-square fits must be unregularized.")
+    if float(getattr(cfg, "RH3_TEMPLATE_PADDING_SIGMA", 4.0)) < 0:
+        raise ValueError("RH3_TEMPLATE_PADDING_SIGMA cannot be negative.")
+    if float(getattr(cfg, "RH3_FRACTION_CONSTRAINT_TOLERANCE", 1e-5)) <= 0:
+        raise ValueError("RH3_FRACTION_CONSTRAINT_TOLERANCE must be positive.")
+    if float(getattr(cfg, "RH3_SINGLE_VELOCITY_MARGIN_KMS", 200.0)) < 0:
+        raise ValueError("RH3_SINGLE_VELOCITY_MARGIN_KMS cannot be negative.")
+    if not isinstance(getattr(cfg, "SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS", True), (bool, np.bool_)):
+        raise ValueError("SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS must be boolean.")
+
 
 def validate_input_paths(cfg: PipelineConfig, path_keys: Iterable[str]) -> dict[str, Path]:
     """Validate only the input paths required by a particular pipeline stage.

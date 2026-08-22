@@ -101,6 +101,26 @@ FLAG_DEFINITIONS = {
         "BIN_SN_ESTIMATOR_DISAGREEMENT",
         "The robust ratio-of-medians S/N and legacy median(flux/uncertainty) estimator disagree by more than the configured factor for one or more bins.",
     ),
+    "RH3_LIKELIHOOD_WIDTH_UNCALIBRATED": QualityFlagDefinition(
+        "RH3_LIKELIHOOD_WIDTH_UNCALIBRATED",
+        "Script 3 used formal diagonal binned-spectrum uncertainties. The location/topology of the profile-likelihood cube may be inspected, but exp(-Delta chi2/2) widths are not publication-final until residual variance scaling and spectral covariance are calibrated.",
+    ),
+    "RH3_ONE_COMPONENT_FAILURES": QualityFlagDefinition(
+        "RH3_ONE_COMPONENT_FAILURES",
+        "One or more Script-3 single-LOSVD control fits failed on their fixed good-pixel sets.",
+    ),
+    "RH3_GRID_FIT_FAILURES": QualityFlagDefinition(
+        "RH3_GRID_FIT_FAILURES",
+        "One or more exact (V_A,V_B,f_A) Script-3 pPXF grid states failed or returned an invalid fixed-velocity solution.",
+    ),
+    "RH3_SIGMA_BOUNDARY_STATES": QualityFlagDefinition(
+        "RH3_SIGMA_BOUNDARY_STATES",
+        "One or more Script-3 grid states profile to sigma_A or sigma_B within the configured warning distance of a dispersion bound.",
+    ),
+    "RH3_FRACTION_CONSTRAINT_WARNING": QualityFlagDefinition(
+        "RH3_FRACTION_CONSTRAINT_WARNING",
+        "At one or more locally best Script-3 states, the stellar-template weights do not reproduce the requested pPXF component light fraction within the configured numerical tolerance.",
+    ),
 }
 
 
