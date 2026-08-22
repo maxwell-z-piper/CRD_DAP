@@ -141,6 +141,60 @@ def _format_bin_examples(diag: binning.BinSNDiagnostics, mask: np.ndarray, max_b
     return ", ".join(parts)
 
 
+def _check_sn_window_coverage(
+    *,
+    arm: str,
+    cube: io.KCWICube,
+    rest_range: tuple[float, float],
+    redshift: float,
+    quality_flags: list[str],
+    logger,
+) -> binning.SNWindowCoverage:
+    """Log wavelength support for an achieved-S/N window without changing it.
+
+    This is intentionally a lightweight configuration/data-consistency check.
+    The production pipeline does not search for a cleaner window, auto-shift
+    CaT, or otherwise adapt the science configuration to make poor test data
+    look better.  A truncated window is simply recorded as QC.
+    """
+    coverage = binning.sn_window_coverage(
+        cube.wavelength,
+        cube.good_wavelength,
+        rest_range=rest_range,
+        redshift=redshift,
+    )
+    logger.info(
+        "%s configured S/N window: requested observed %.1f--%.1f A; "
+        "usable GOODWAVE envelope %.1f--%.1f A; width coverage=%.1f%%; "
+        "usable channels=%d/%d (%.1f%%)",
+        arm,
+        coverage.requested_observed_min,
+        coverage.requested_observed_max,
+        coverage.usable_observed_min,
+        coverage.usable_observed_max,
+        100.0 * coverage.envelope_coverage_fraction,
+        coverage.n_usable_channels,
+        coverage.n_requested_channels,
+        100.0 * coverage.usable_channel_fraction,
+    )
+    if coverage.truncated_blue or coverage.truncated_red:
+        sides = []
+        if coverage.truncated_blue:
+            sides.append("blue")
+        if coverage.truncated_red:
+            sides.append("red")
+        _quality_flag(
+            quality_flags,
+            "SN_WINDOW_COVERAGE_WARNING",
+            logger,
+            f"{arm} configured S/N window is truncated at the {'+'.join(sides)} edge by Script-1 GOODWAVE coverage. "
+            f"Requested observed {coverage.requested_observed_min:.1f}--{coverage.requested_observed_max:.1f} A, "
+            f"usable envelope {coverage.usable_observed_min:.1f}--{coverage.usable_observed_max:.1f} A. "
+            "The window is not changed automatically; this is a QC warning only.",
+        )
+    return coverage
+
+
 def _required_script1_products(run_dir: Path) -> dict[str, Path]:
     products = run_dir / "products"
     return {
@@ -442,6 +496,22 @@ def main() -> int:
         logger.info("Adopted Script-1 tangent-plane center maps to BL pixel (y,x)=(%.2f, %.2f)", *center_yx)
 
         crd.log_section(logger, "2. Continuum S/N maps and stellar-body aperture")
+        bl_window_coverage = _check_sn_window_coverage(
+            arm="BL",
+            cube=bl,
+            rest_range=tuple(cfg.BL_BINNING_REST_RANGE_ANGSTROM),
+            redshift=float(cfg.REDSHIFT),
+            quality_flags=quality_flags,
+            logger=logger,
+        )
+        rh3_window_coverage = _check_sn_window_coverage(
+            arm="RH3",
+            cube=rh3,
+            rest_range=tuple(cfg.RH3_SN_REST_RANGE_ANGSTROM),
+            redshift=float(cfg.REDSHIFT),
+            quality_flags=quality_flags,
+            logger=logger,
+        )
         bl_window = binning.continuum_window_maps(
             bl,
             rest_range=tuple(cfg.BL_BINNING_REST_RANGE_ANGSTROM),
@@ -787,6 +857,18 @@ def main() -> int:
             "bl_target_sn": float(cfg.BL_TARGET_SN),
             "bl_window_observed_angstrom": [bl_window.observed_min, bl_window.observed_max],
             "rh3_window_observed_angstrom": [rh3_window.observed_min, rh3_window.observed_max],
+            "bl_sn_window_coverage": {
+                "requested_observed_angstrom": [bl_window_coverage.requested_observed_min, bl_window_coverage.requested_observed_max],
+                "usable_observed_angstrom": [bl_window_coverage.usable_observed_min, bl_window_coverage.usable_observed_max],
+                "envelope_coverage_fraction": bl_window_coverage.envelope_coverage_fraction,
+                "usable_channel_fraction": bl_window_coverage.usable_channel_fraction,
+            },
+            "rh3_sn_window_coverage": {
+                "requested_observed_angstrom": [rh3_window_coverage.requested_observed_min, rh3_window_coverage.requested_observed_max],
+                "usable_observed_angstrom": [rh3_window_coverage.usable_observed_min, rh3_window_coverage.usable_observed_max],
+                "envelope_coverage_fraction": rh3_window_coverage.envelope_coverage_fraction,
+                "usable_channel_fraction": rh3_window_coverage.usable_channel_fraction,
+            },
             "bin_sn_estimator": "median(flux) / median(uncertainty)",
             "bin_sn_require_positive_continuum": bool(cfg.BIN_SN_REQUIRE_POSITIVE_CONTINUUM),
             "bin_sn_min_good_channels": int(cfg.BIN_SN_MIN_GOOD_CHANNELS),
