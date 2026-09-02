@@ -1,0 +1,13 @@
+python scripts/01_prepare_and_register_cubes.py \
+    --config config/8143-1902.py \
+    --reduction-manifest /Users/maxpiper/CRD_DRP/validation_products/03_reduction_package/CRD_DRP_reduction_manifest.json
+
+python scripts/02_make_master_BL_bins.py \
+    --config config/8143-1902.py \
+    --script1-run /path/to/new_script1_run
+
+python scripts/03_build_RH3_likelihood_cubes.py \
+    --config config/8143-1902.py \
+    --script1-run /path/to/new_script1_run \
+    --script2-run /path/to/new_script2_run \
+    --workers N

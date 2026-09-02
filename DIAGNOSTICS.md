@@ -1876,6 +1876,22 @@ If the answer to an important item is “no” or “unknown,” the pipeline sh
 
 # Script 3 — pPXF failure diagnostics and worker exceptions
 
+## Excluded-pixel pPXF input sanitization
+
+**Script:** 03  
+**Helper:** `crd_utils.ppxf_utils`
+
+The Script-3 log reports whether the rebinned spectra contain non-finite/non-positive samples outside the fixed `goodpixels` set. Such samples are expected when an upstream mask removes wavelength channels: CRD_DAP keeps them as `NaN` in the science products, while pPXF requires its complete input vectors to be finite and its complete noise vector to be positive before it applies `goodpixels`.
+
+Script 3 therefore checks two distinct conditions. Any non-finite galaxy value or non-finite/non-positive uncertainty **inside** `goodpixels` is a hard `SCRIPT03_INVALID_GOODPIXELS` failure. Invalid values **outside** `goodpixels` are counted in the log and replaced only in private copies passed to pPXF. Those samples remain excluded from every one- and two-component fit and from the explicit total-$\chi^2$ calculation. The saved normalized spectra/noise retain the original NaNs, so this compatibility step cannot hide the upstream mask provenance.
+
+A typical healthy masked-data message is of the form:
+
+```text
+pPXF excluded-pixel API sanitization required for ... bins: ...
+Only private pPXF input copies are filled; these samples remain outside goodpixels ...
+```
+
 ## Global pPXF wavelength-coverage preflight
 
 **Script:** 03  

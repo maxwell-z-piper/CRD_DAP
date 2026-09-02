@@ -43,10 +43,14 @@ The seven science-driver scripts are intended to be:
 
 The driver scripts should stay compact. Detailed calculations belong in the `crd_utils` package.
 
-A schematic flow is
+A schematic production flow is
 
 $$
-\mathrm{BL+RH3\ cubes}
+\mathrm{raw\ KCWI/KCRM}
+\rightarrow
+\mathrm{CRD\_DRP}
+\rightarrow
+\mathrm{validated\ reduction\ manifest}
 \rightarrow
 \mathrm{prepared/registered\ cubes}
 \rightarrow
@@ -63,6 +67,8 @@ $$
 \mathrm{uncertainties/final\ maps}.
 $$
 
+`CRD_DRP_reduction_manifest.json` is the formal boundary between detector/reduction work and CRD_DAP science analysis. The manifest identifies the validated BLUE/RED stacked products and atmospheric masks and carries their integrity/provenance into Script 1.
+
 ---
 
 # 3. Reproducibility architecture
@@ -71,18 +77,22 @@ $$
 
 All target-specific values and analysis hyperparameters are stored in a target configuration derived from `config/target_config_template.py`. Science functions should not contain hidden target-specific constants.
 
-Required paths include:
+For production, the reduced science products are **not independently specified as the authoritative input in the target config**. Script 1 instead receives a validated `CRD_DRP_reduction_manifest.json` through `--reduction-manifest`. That manifest identifies the final BLUE/RED KcwiKit `i/v/m/e` stacks and the corresponding finalized atmospheric masks.
 
-- stacked BL cube;
-- stacked RH3 cube;
+CRD_DAP configuration still supplies, at minimum:
+
 - BL master arc;
 - RH3 master arc;
 - PyMorph VAC or local target extract;
-- XSL SSP library.
+- XSL SSP library;
+- target redshift / geometry initializers;
+- numerical and scientific analysis settings.
+
+Direct KcwiKit/DRP science-cube paths remain supported only for legacy/testing runs in which no CRD_DRP manifest is supplied.
 
 The master arcs are required because the adopted baseline measures the instrumental line-spread function empirically from calibration lines.
 
-Each run snapshots the exact configuration into its run directory.
+Each run snapshots the exact configuration into its run directory. Production Script-1 provenance additionally records the source CRD_DRP manifest, its hash, the BLUE->BL / RED->RH3 mapping, and the atmospheric-mask provenance inherited by each arm.
 
 ## 3.2 Logging
 
@@ -125,20 +135,37 @@ A new diagnostic is not considered finished until its `DIAGNOSTICS.md` entry exi
 
 ## 4.1 Inputs
 
-The production science input for each arm is the four-file KcwiKit post-DRP stack:
+The production science input to Script 1 is a **validated CRD_DRP reduction manifest**:
+
+```text
+CRD_DRP_reduction_manifest.json
+```
+
+The manifest is produced only after the CRD_DRP post-stacking integrity, atmospheric-mask, and final package-validation stages. It identifies, for each upstream arm, the four-file KcwiKit post-DRP stack:
 
 - `*_icubes.fits` — stacked science flux;
 - `*_vcubes.fits` — stacked variance;
 - `*_mcubes.fits` — final binary stack mask;
-- `*_ecubes.fits` — effective exposure time in seconds.
+- `*_ecubes.fits` — effective exposure time in seconds;
 
-Script 1 therefore requires the four BL stack files and the four RH3 stack files, plus:
+and the finalized 1-D observed-frame atmospheric mask. CRD_DRP calls the arms BLUE/RED; CRD_DAP explicitly maps
 
-- BL master arc;
-- RH3 master arc;
-- configuration metadata.
+```text
+BLUE -> BL
+RED  -> RH3.
+```
 
-The science cubes are assumed to have already passed through the KCWI DRP and KcwiKit stacking. Script 1 is science preparation, not detector-level reduction or cube stacking. A native DRP multi-extension cube remains supported for legacy/testing use, but is not the production stacked-data path.
+A production Script-1 invocation therefore supplies:
+
+```bash
+--reduction-manifest /path/to/CRD_DRP_reduction_manifest.json
+```
+
+plus the normal target configuration containing the BL/RH3 master arcs and other analysis/calibration metadata.
+
+Before reading the science data, Script 1 requires the CRD_DRP package and both arms to be `PASS`, resolves all referenced files, and verifies the recorded SHA256 hashes by default. The hash check may be bypassed only as an explicit non-production override. The atmospheric-mask grid and wavelength medium are then checked against the corresponding science stack.
+
+The science cubes are therefore assumed to have already passed through the KCWI DRP / KSkyWizard / KcwiKit and the CRD_DRP validation/masking workflow. Script 1 is science preparation, not detector-level reduction, sky/telluric-mask construction, or cube stacking. Direct KcwiKit paths and native DRP multi-extension cubes remain supported for legacy/testing use, but are not the preferred production handoff.
 
 KcwiKit's current stacking implementation uses the original PyDRP `FLAGS` cube to reject invalid contributing samples. The final stacked `mcubes` product is then binary: zero means valid contributing exposure exists and one means no valid contribution. The original bit-level DRP flag values therefore cannot be reconstructed from the final stack and CRD_DAP does not attempt to invent them.
 
@@ -182,15 +209,36 @@ The requested KcwiKit output grid can intentionally be larger than the illuminat
 
 A spatial spaxel may be excluded if the fraction of usable wavelength samples falls below the configurable threshold. **Low S/N by itself is not a reason to reject a spaxel**; Script 2 uses PowerBin to combine low-S/N spatial information.
 
+The global CRD_DRP atmospheric mask is applied *after* this native spaxel-validity calculation. A wavelength that is globally excluded for sky/telluric reasons must not, by itself, cause a spatial spaxel to become invalid.
+
 ## 4.4 Wavelength masks
 
-Three concepts must remain distinct:
+Four concepts must remain distinct:
 
-1. **instrument-good wavelengths** — valid according to calibration/data quality;
-2. **RH3 fit-good wavelengths** — wavelengths used for RH3 stellar fitting;
-3. **BL fit-good wavelengths** — wavelengths used for BL stellar/gas fitting.
+1. **native/instrument-good wavelengths** — valid according to the science-stack coverage, variance/mask state, calibration limits, and Script-1 data-quality logic;
+2. **CRD_DRP atmospheric wavelengths** — observed-frame wavelengths independently identified upstream as unreliable because of persistent sky emission and/or telluric absorption;
+3. **RH3 fit-good wavelengths** — the subset used for RH3 stellar fitting after applying the fit interval, LSF support, and any deliberate additional science masks;
+4. **BL fit-good wavelengths** — the subset used for BL stellar/gas fitting.
 
-Scientifically valid wavelengths should not be permanently discarded in Script 1 merely because a later fit masks them.
+The CRD_DRP atmospheric mask is a reduction-level exclusion, not a state-dependent pPXF rejection. Script 1 therefore defines
+
+$$
+G_{\lambda,\mathrm{combined}}
+=
+G_{\lambda,\mathrm{native}}
+\cap
+
+eg M_{\mathrm{atm}},
+$$
+
+and applies the same fixed 1-D atmospheric exclusion to the sample-level `GOODMASK`. This combined `GOODWAVE`/`GOODMASK` is the authoritative state passed downstream.
+
+To retain provenance, the prepared cube also stores:
+
+- `NATIVEGW` — Script-1 wavelength quality before the atmospheric exclusion;
+- `ATMMASK` — the CRD_DRP mask (`1=True` means exclude from stellar analysis).
+
+Scientifically valid wavelengths should still not be permanently discarded in Script 1 merely because a later **science fit** chooses not to use them. That principle is separate from the independently validated CRD_DRP atmospheric exclusion.
 
 ## 4.5 Wavelength conventions
 
@@ -315,7 +363,9 @@ Script 2 consumes the immutable products written by one completed Script-1 run:
 - `RH3_spatial_coordinates.npz`;
 - the preliminary Script-1 spectral-correlation products when available.
 
-The selected Script-1 run directory is written into the Script-2 FITS headers and JSON manifest. Script 2 must not reconstruct the original DRP/KcwiKit masks; it uses the final `GOODMASK`, `GOODSPAX`, and `GOODWAVE` state saved by Script 1.
+The selected Script-1 run directory is written into the Script-2 FITS headers and JSON manifest. Script 2 must not reconstruct the original DRP/KcwiKit or CRD_DRP atmospheric masks; it uses the final `GOODMASK`, `GOODSPAX`, and `GOODWAVE` state saved by Script 1. For production runs these masks already encode the CRD_DRP atmospheric exclusions.
+
+The Script-2 manifest propagates the source CRD_DRP manifest/hash and per-arm atmospheric-mask provenance so later stages can establish the complete reduction-to-analysis lineage without reopening the reduction package.
 
 ## 5.2 BL alone defines the spatial tessellation
 
@@ -551,14 +601,20 @@ The current `8143-1902.py` integration fixture contains RL rather than RH3 data,
 
 For each PowerBin, Script 3 constructs one fixed `goodpixels` set from:
 
-- Script-2 spectral validity;
+- Script-2 spectral validity, which already contains the CRD_DRP atmospheric exclusion propagated through Script 1;
 - the configured Script-3 rest-frame fitting interval;
 - the empirically supported Script-1 LSF interval;
 - finite positive formal uncertainty;
-- optional configured observed-frame sky/telluric masks;
-- optional configured rest-frame masks.
+- optional **additional/manual** observed-frame science masks;
+- optional additional rest-frame masks.
+
+The routine sky/telluric mask is therefore **not rebuilt in Script 3**. The former `RH3_ATMOSPHERIC_MASK_FILE` / Script-03d production pathway is retired and should remain `None`; a non-`None` value is treated as an error to prevent accidental double application. `RH3_MASK_OBSERVED_RANGES_ANGSTROM` and `RH3_MASK_REST_RANGES_ANGSTROM` remain available only for intentional extra science exclusions beyond the CRD_DRP mask.
 
 That identical pixel set is used by the one-component control and by **every** two-component grid state in the bin. `clean=True` or state-dependent clipping is not allowed in the likelihood cube because allowing different states to discard different pixels would make their total chi-square values non-comparable.
+
+### pPXF interface placeholders for already-excluded samples
+
+The rebinned CRD_DAP science arrays deliberately retain `NaN` at rejected log-grid samples so the masking provenance remains explicit. pPXF imposes a stricter API requirement: it validates the complete input vectors before applying `goodpixels`, requiring the full galaxy vector to be finite and the full noise vector to be finite and positive. Script 3 therefore performs a narrow interface-only sanitization in `crd_utils.ppxf_utils`. Every index in `goodpixels` is first required to contain finite flux and finite positive uncertainty. Only invalid samples that are **already excluded** from `goodpixels` are replaced in private copies passed to pPXF, using benign finite placeholders. The original science/checkpoint arrays are not modified, and the placeholder samples contribute neither to the pPXF optimization nor to CRD_DAP's explicit total $\chi^2$, which is evaluated only on `goodpixels`. If an invalid value ever appears *inside* `goodpixels`, Script 3 hard-fails instead of repairing it.
 
 ## 6.5 Wavelength / velocity convention
 
