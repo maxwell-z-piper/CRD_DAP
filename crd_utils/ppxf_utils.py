@@ -53,8 +53,29 @@ def _validate_spectrum_inputs(
     lam: np.ndarray,
     goodpixels: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    galaxy = np.asarray(galaxy, dtype=float)
-    noise = np.asarray(noise, dtype=float)
+    """Validate a spectrum and build pPXF-safe *private* input vectors.
+
+    pPXF requires the complete ``galaxy`` vector to be finite and the complete
+    ``noise`` vector to be finite and strictly positive, even for samples that
+    are absent from ``goodpixels``.  CRD_DAP deliberately represents rejected
+    log-grid samples as NaN, so those two conventions need a narrow interface
+    translation.
+
+    Scientifically valid samples are never altered: every index in
+    ``goodpixels`` must already contain finite galaxy flux and finite positive
+    noise, otherwise this function raises.  Only excluded samples that violate
+    pPXF's full-vector API contract are replaced in local copies.  They remain
+    absent from ``goodpixels`` and therefore contribute neither to the pPXF fit
+    nor to CRD_DAP's explicit total-chi-square calculation.
+
+    The caller's arrays are never modified in place.  This is important because
+    Script 3 keeps the original NaN/mask representation in its checkpoints and
+    diagnostic products.
+    """
+    # Private copies are intentional: API-only placeholder values must never
+    # leak back into the science arrays/checkpoints kept by Script 3.
+    galaxy = np.array(galaxy, dtype=float, copy=True)
+    noise = np.array(noise, dtype=float, copy=True)
     lam = np.asarray(lam, dtype=float)
     goodpixels = np.asarray(goodpixels, dtype=int)
 
@@ -72,6 +93,40 @@ def _validate_spectrum_inputs(
         raise ValueError("galaxy must be finite on every good pixel.")
     if np.any(~np.isfinite(lam)) or np.any(np.diff(lam) <= 0):
         raise ValueError("lam must be finite and strictly increasing.")
+
+    # pPXF validates the *entire* input vectors before applying goodpixels.
+    # Supply benign placeholders only where the sample is already excluded.
+    excluded = np.ones(galaxy.size, dtype=bool)
+    excluded[goodpixels] = False
+
+    bad_galaxy = excluded & ~np.isfinite(galaxy)
+    bad_noise = excluded & (~np.isfinite(noise) | (noise <= 0))
+
+    if np.any(bad_galaxy):
+        galaxy_fill = float(np.median(galaxy[goodpixels]))
+        if not np.isfinite(galaxy_fill):  # defensive; goodpixels were checked above
+            galaxy_fill = 0.0
+        galaxy[bad_galaxy] = galaxy_fill
+
+    if np.any(bad_noise):
+        noise_fill = float(np.median(noise[goodpixels]))
+        # This should be guaranteed by the good-pixel validation above, but keep
+        # an explicit guard so an API placeholder can never acquire fit weight.
+        if not np.isfinite(noise_fill) or noise_fill <= 0:
+            raise ValueError("Could not construct a finite positive pPXF noise placeholder.")
+        noise[bad_noise] = noise_fill
+
+    # Fail loudly if some future input violates pPXF's global vector contract in
+    # a way not covered by the deliberately excluded-placeholder case.
+    if np.any(~np.isfinite(galaxy)):
+        raise ValueError(
+            "galaxy contains non-finite samples outside the validated excluded-pixel placeholder case."
+        )
+    if np.any(~np.isfinite(noise)) or np.any(noise <= 0):
+        raise ValueError(
+            "noise contains non-finite/non-positive samples outside the validated excluded-pixel placeholder case."
+        )
+
     return galaxy, noise, lam, goodpixels
 
 
