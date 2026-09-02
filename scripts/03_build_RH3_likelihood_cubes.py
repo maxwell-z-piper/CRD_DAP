@@ -449,55 +449,45 @@ def _merge_mask_intervals(intervals: list[tuple[float, float]]) -> list[tuple[fl
     return [(float(lo), float(hi)) for lo, hi in merged]
 
 
-def _resolve_atmospheric_mask_file(cfg, science_medium: str) -> tuple[list[tuple[float, float]], Path | None]:
-    value = getattr(cfg, "RH3_ATMOSPHERIC_MASK_FILE", None)
-    if value in (None, ""):
-        return [], None
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = Path(cfg.PROJECT_ROOT) / path
-    path = path.resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"RH3_ATMOSPHERIC_MASK_FILE does not exist: {path}")
-    tab = Table.read(path, format="ascii.ecsv")
-    medium = str(tab.meta.get("OBSERVED_SCIENCE_WAVELENGTH_MEDIUM", "unknown")).strip().lower()
-    if medium not in {"air", "vacuum"}:
-        raise ValueError(
-            f"Atmospheric mask table {path} does not declare OBSERVED_SCIENCE_WAVELENGTH_MEDIUM as air/vacuum."
-        )
-    if medium != science_medium:
-        raise ValueError(
-            f"Atmospheric mask table is in observed {medium}, but RH3 science data are {science_medium}. "
-            "Regenerate Script 03d for this Script-3 wavelength convention; do not silently convert a saved mask."
-        )
-    required = {"OBSERVED_SCIENCE_LO_ANGSTROM", "OBSERVED_SCIENCE_HI_ANGSTROM"}
-    if not required.issubset(tab.colnames):
-        raise ValueError(f"Atmospheric mask table {path} lacks required columns {sorted(required)}.")
-    intervals = []
-    for row in tab:
-        if "INCLUDED_IN_ATMOSPHERIC_MASK" in tab.colnames and not bool(row["INCLUDED_IN_ATMOSPHERIC_MASK"]):
-            continue
-        intervals.append((
-            float(row["OBSERVED_SCIENCE_LO_ANGSTROM"]),
-            float(row["OBSERVED_SCIENCE_HI_ANGSTROM"]),
-        ))
-    if not intervals:
-        raise ValueError(f"Atmospheric mask table {path} contains no included intervals.")
-    return _merge_mask_intervals(intervals), path
-
-
 def _resolve_observed_masks(cfg, science_medium: str) -> tuple[list[tuple[float, float]], dict]:
-    manual = [(float(lo), float(hi)) for lo, hi in getattr(cfg, "RH3_MASK_OBSERVED_RANGES_ANGSTROM", [])]
-    atmospheric, atmospheric_path = _resolve_atmospheric_mask_file(cfg, science_medium)
-    combined = _merge_mask_intervals(manual + atmospheric)
+    """Resolve only *additional/manual* observed-frame masks for Script 3.
+
+    Production atmospheric masking now happens upstream:
+
+        CRD_DRP atmospheric mask
+            -> Script 1 GOODWAVE/GOODMASK
+            -> Script 2 RH3_GOOD
+            -> Script 3 good_native
+
+    ``RH3_ATMOSPHERIC_MASK_FILE`` is therefore a retired 03d-era pathway.  A
+    non-None value is treated as a configuration error so the same atmospheric
+    wavelengths cannot be applied through two independent mechanisms.
+    """
+    legacy = getattr(cfg, "RH3_ATMOSPHERIC_MASK_FILE", None)
+    if legacy not in (None, ""):
+        raise ValueError(
+            "RH3_ATMOSPHERIC_MASK_FILE is a retired CRD_DAP 03d-era input. "
+            "The production atmospheric mask must come from the validated "
+            "CRD_DRP reduction manifest and is already inherited through "
+            "Script-1/Script-2 GOOD masks. Set RH3_ATMOSPHERIC_MASK_FILE=None. "
+            "Use RH3_MASK_OBSERVED_RANGES_ANGSTROM only for intentional "
+            "additional/manual science exclusions."
+        )
+
+    manual = [
+        (float(lo), float(hi))
+        for lo, hi in getattr(cfg, "RH3_MASK_OBSERVED_RANGES_ANGSTROM", [])
+    ]
+    combined = _merge_mask_intervals(manual)
     provenance = {
         "manual_config_ranges": [[float(lo), float(hi)] for lo, hi in manual],
-        "atmospheric_mask_file": None if atmospheric_path is None else str(atmospheric_path),
-        "atmospheric_file_ranges": [[float(lo), float(hi)] for lo, hi in atmospheric],
-        "effective_ranges": [[float(lo), float(hi)] for lo, hi in combined],
+        "legacy_atmospheric_mask_file_disabled": True,
+        "effective_additional_ranges": [
+            [float(lo), float(hi)] for lo, hi in combined
+        ],
+        "science_wavelength_medium": str(science_medium),
     }
     return combined, provenance
-
 
 def _apply_native_masks(
     native_wave_obs: np.ndarray,
@@ -1291,6 +1281,10 @@ def main() -> int:
                 "target": str(cfg.TARGET_NAME),
                 "source_script2_run": str(source_run),
                 "source_script1_run": str(script1_run),
+                "source_reduction_manifest": s02_manifest.get("source_reduction_manifest"),
+                "source_reduction_manifest_sha256": s02_manifest.get(
+                    "source_reduction_manifest_sha256"
+                ),
                 "config_path": str(Path(args.config).expanduser().resolve()),
                 "config_sha256": _sha256(Path(args.config).expanduser().resolve()),
                 "checkpoint_schema_version": CHECKPOINT_SCHEMA_VERSION,
@@ -1334,18 +1328,30 @@ def main() -> int:
         )
         observed_masks, observed_mask_provenance = _resolve_observed_masks(cfg, science_medium)
         rest_masks = [(float(lo), float(hi)) for lo, hi in getattr(cfg, "RH3_MASK_REST_RANGES_ANGSTROM", [])]
+
+        inherited_atmosphere = (
+            (s02_manifest.get("source_script1_atmospheric_masks") or {}).get("RH3")
+        )
+        if inherited_atmosphere:
+            logger.info(
+                "RH3 CRD_DRP atmospheric mask is already inherited through Script-2 "
+                "RH3_GOOD: source=%s | masked=%s/%s native channels",
+                inherited_atmosphere.get("source"),
+                inherited_atmosphere.get("n_masked_pixels"),
+                inherited_atmosphere.get("n_native_pixels"),
+            )
+        else:
+            logger.warning(
+                "NO_CRD_DRP_ATMOSPHERIC_PROVENANCE | Script-2 manifest does not record "
+                "an inherited RH3 CRD_DRP atmospheric mask. This is acceptable only for "
+                "legacy/testing runs."
+            )
+
         if observed_masks:
             logger.info(
-                "RH3 effective fixed observed-frame masks (%s science wavelength medium): %s",
+                "RH3 additional fixed observed-frame masks (%s science wavelength medium): %s",
                 science_medium, observed_masks,
             )
-            if observed_mask_provenance["atmospheric_mask_file"] is not None:
-                logger.info(
-                    "RH3 atmospheric mask source: %s | file intervals=%d | manual config intervals=%d",
-                    observed_mask_provenance["atmospheric_mask_file"],
-                    len(observed_mask_provenance["atmospheric_file_ranges"]),
-                    len(observed_mask_provenance["manual_config_ranges"]),
-                )
         if rest_masks:
             logger.info("RH3 fixed rest-frame masks (%s template medium): %s", template_medium, rest_masks)
         if float(cfg.RH3_SIGMA_START_KMS) < 3.0 * velscale:
@@ -1701,12 +1707,24 @@ def main() -> int:
             "science_wavelength_medium": science_medium,
             "template_wavelength_medium": template_medium,
             "observed_mask_wavelength_medium": science_medium,
+            "source_reduction_manifest": s02_manifest.get("source_reduction_manifest"),
+            "source_reduction_manifest_sha256": s02_manifest.get(
+                "source_reduction_manifest_sha256"
+            ),
+            "inherited_rh3_atmospheric_mask": inherited_atmosphere,
+            "atmospheric_mask_application_stage": (
+                "CRD_DRP -> Script 1 GOODMASK/GOODWAVE -> Script 2 RH3_GOOD"
+            ),
             "configured_observed_mask_ranges_angstrom": [
                 [float(lo), float(hi)] for lo, hi in getattr(cfg, "RH3_MASK_OBSERVED_RANGES_ANGSTROM", [])
             ],
-            "atmospheric_mask_file": observed_mask_provenance["atmospheric_mask_file"],
-            "atmospheric_mask_file_ranges_angstrom": observed_mask_provenance["atmospheric_file_ranges"],
-            "effective_observed_mask_ranges_angstrom": observed_mask_provenance["effective_ranges"],
+            # Retain these legacy manifest keys as empty values so older readers
+            # fail softly while production no longer uses the 03d file pathway.
+            "atmospheric_mask_file": None,
+            "atmospheric_mask_file_ranges_angstrom": [],
+            "effective_observed_mask_ranges_angstrom": observed_mask_provenance[
+                "effective_additional_ranges"
+            ],
             "configured_rest_mask_ranges_angstrom": [
                 [float(lo), float(hi)] for lo, hi in getattr(cfg, "RH3_MASK_REST_RANGES_ANGSTROM", [])
             ],

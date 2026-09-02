@@ -10,7 +10,8 @@ science stages.
 Primary responsibilities
 ------------------------
 1. Load the exact Script-1 prepared BL and red/RH3 cubes plus tangent-plane
-   coordinate products.
+   coordinate products. The prepared GOODMASK/GOODWAVE already include any
+   validated CRD_DRP atmospheric wavelength exclusions.
 2. Measure a robust BL continuum S/N proxy in a configured rest-frame window.
 3. Define a useful stellar-body aperture without discarding low-S/N spaxels
    inside that aperture.
@@ -464,6 +465,20 @@ def main() -> int:
         logger.info("Redshift: %.8f", float(cfg.REDSHIFT))
         source_flags = list(source_manifest.get("quality_flags", []))
         logger.info("Source Script-1 quality flags: %s", source_flags if source_flags else "none/manifest unavailable")
+        if source_manifest.get("source_reduction_manifest"):
+            logger.info(
+                "Inherited CRD_DRP reduction manifest: %s",
+                source_manifest.get("source_reduction_manifest"),
+            )
+            for arm in ("BL", "RH3"):
+                info = source_manifest.get(f"{arm}_atmospheric_mask") or {}
+                logger.info(
+                    "%s atmospheric mask already encoded in prepared GOODWAVE/GOODMASK: "
+                    "masked=%s/%s native channels",
+                    arm,
+                    info.get("n_masked_pixels", "unknown"),
+                    info.get("n_native_pixels", "unknown"),
+                )
         if "REGISTRATION_INCONCLUSIVE" in source_flags:
             logger.warning(
                 "SOURCE_REGISTRATION_INCONCLUSIVE | Script 1 did not adopt an optional morphology-based residual shift. "
@@ -848,6 +863,18 @@ def main() -> int:
             "target": str(cfg.TARGET_NAME),
             "source_script1_run": str(source_run),
             "source_script1_quality_flags": list(source_manifest.get("quality_flags", [])),
+            "source_reduction_manifest": source_manifest.get("source_reduction_manifest"),
+            "source_reduction_manifest_sha256": source_manifest.get(
+                "source_reduction_manifest_sha256"
+            ),
+            "source_script1_atmospheric_masks": {
+                "BL": source_manifest.get("BL_atmospheric_mask"),
+                "RH3": source_manifest.get("RH3_atmospheric_mask"),
+            },
+            "mask_contract": (
+                "BL_GOOD/RH3_GOOD are coadds of Script-1 GOODMASK, which already "
+                "includes the CRD_DRP atmospheric wavelength masks."
+            ),
             "prepared_bl": str(source_products["prepared_bl"]),
             "prepared_rh3": str(source_products["prepared_rh3"]),
             "n_bins": int(pb.n_bins),

@@ -11,7 +11,8 @@ Primary responsibilities
 1. Load matched KcwiKit four-file BL/RH3 stacks (or legacy DRP cubes) and
    standardize their internal axis order.
 2. Build hard sample/spaxel/wavelength masks from variance, stack-mask,
-   effective-exposure, and wavelength-validity information.
+   effective-exposure, wavelength-validity information, and the validated
+   CRD_DRP atmospheric wavelength masks.
 3. Create robust collapsed-continuum images and center diagnostics.
 4. Verify BL/RH3 WCS registration without resampling the science cubes.
 5. Save common tangent-plane spatial coordinates for both arms.
@@ -34,11 +35,13 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import hashlib
 import platform
 import sys
 import time
 
 import numpy as np
+from astropy.io import fits
 
 import crd_utils as crd
 from crd_utils import cube_utils, io, noise, plotting, psf_lsf, validation
@@ -52,6 +55,23 @@ def _parser() -> argparse.ArgumentParser:
         "--config",
         required=True,
         help="Path to a target-specific config derived from config/target_config_template.py",
+    )
+    parser.add_argument(
+        "--reduction-manifest",
+        default=None,
+        help=(
+            "CRD_DRP_reduction_manifest.json produced by the validated CRD_DRP "
+            "handoff. When supplied, its BLUE/RED i/v/m/e stacks and atmospheric "
+            "masks replace the science-cube paths in the target config."
+        ),
+    )
+    parser.add_argument(
+        "--skip-reduction-hash-check",
+        action="store_true",
+        help=(
+            "Skip SHA256 verification of CRD_DRP files against the manifest. "
+            "Production runs should normally leave verification enabled."
+        ),
     )
     parser.add_argument(
         "--run-name",
@@ -95,7 +115,258 @@ def _save_spatial_coordinates(
     return x_arcsec, y_arcsec
 
 
-def _load_science_arm(arm: str, cfg, logger) -> io.KCWICube:
+
+def _sha256_file(path: Path, block_size: int = 1024 * 1024) -> str:
+    """Return a streaming SHA256 digest without loading a cube into memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(block_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _manifest_record_path(record, *, label: str) -> tuple[Path, str | None]:
+    """Resolve one CRD_DRP manifest file record and return path + expected hash."""
+    if isinstance(record, str):
+        path = Path(record).expanduser().resolve()
+        expected = None
+    elif isinstance(record, dict):
+        value = record.get("path")
+        if value in (None, ""):
+            raise ValueError(f"CRD_DRP manifest record {label!r} has no path.")
+        path = Path(value).expanduser().resolve()
+        expected = record.get("sha256")
+    else:
+        raise ValueError(f"CRD_DRP manifest record {label!r} has invalid structure.")
+
+    if not path.is_file():
+        raise FileNotFoundError(f"CRD_DRP manifest file does not exist: {label}={path}")
+    return path, None if expected in (None, "") else str(expected).lower()
+
+
+def _load_reduction_manifest(
+    manifest_path: str | Path,
+    *,
+    verify_hashes: bool,
+    logger,
+) -> tuple[Path, dict, dict[str, dict[str, object]]]:
+    """Validate the CRD_DRP handoff and resolve BL/RH3 science inputs.
+
+    CRD_DRP calls the arms BLUE/RED while CRD_DAP's analysis streams are BL/RH3.
+    The mapping is therefore explicit and recorded in Script-1 provenance.
+    """
+    path = Path(manifest_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"CRD_DRP reduction manifest does not exist: {path}")
+
+    manifest = dict(io.read_json(path))
+    if str(manifest.get("pipeline", "")).strip() != "CRD_DRP":
+        raise ValueError(f"{path} is not identified as a CRD_DRP manifest.")
+    schema = str(manifest.get("schema", "")).strip()
+    if not schema.startswith("CRD_DRP_reduction_manifest"):
+        raise ValueError(
+            f"Unsupported/unknown CRD_DRP manifest schema {schema!r}; "
+            "expected CRD_DRP_reduction_manifest_*."
+        )
+    if str(manifest.get("validation_status", "")).upper() != "PASS":
+        raise RuntimeError(
+            "CRD_DRP reduction package is not validated PASS. "
+            f"validation_status={manifest.get('validation_status')!r}"
+        )
+
+    arm_map = {"BL": "blue", "RH3": "red"}
+    resolved: dict[str, dict[str, object]] = {}
+
+    for dap_arm, drp_arm in arm_map.items():
+        arm_payload = manifest.get(drp_arm)
+        if not isinstance(arm_payload, dict):
+            raise ValueError(f"CRD_DRP manifest lacks arm block {drp_arm!r}.")
+        if str(arm_payload.get("status", "")).upper() != "PASS":
+            raise RuntimeError(
+                f"CRD_DRP {drp_arm.upper()} arm is not PASS: "
+                f"{arm_payload.get('status')!r}"
+            )
+        files = arm_payload.get("files")
+        if not isinstance(files, dict):
+            raise ValueError(f"CRD_DRP {drp_arm} block lacks a files dictionary.")
+
+        role_map = {
+            "icube": "icube",
+            "vcube": "vcube",
+            "mcube": "mcube",
+            "ecube": "ecube",
+            "atmospheric_mask": "atmospheric_mask_fits",
+            "atmospheric_intervals": "atmospheric_intervals_ecsv",
+        }
+        arm_resolved: dict[str, object] = {"manifest_arm": drp_arm}
+        for role, manifest_key in role_map.items():
+            rec = files.get(manifest_key)
+            if rec is None:
+                if role == "atmospheric_intervals":
+                    arm_resolved[role] = None
+                    continue
+                raise ValueError(
+                    f"CRD_DRP {drp_arm} files block lacks required {manifest_key!r}."
+                )
+            file_path, expected_hash = _manifest_record_path(
+                rec, label=f"{drp_arm}.{manifest_key}"
+            )
+            if verify_hashes and expected_hash is not None:
+                actual = _sha256_file(file_path)
+                if actual.lower() != expected_hash:
+                    raise RuntimeError(
+                        "CRD_DRP handoff hash mismatch: "
+                        f"{drp_arm}.{manifest_key}={file_path}; "
+                        f"manifest={expected_hash}, actual={actual}"
+                    )
+            arm_resolved[role] = file_path
+            arm_resolved[f"{role}_sha256"] = expected_hash
+
+        resolved[dap_arm] = arm_resolved
+
+    logger.info("CRD_DRP manifest validated: %s", path)
+    logger.info(
+        "CRD_DRP arm mapping: BLUE -> BL; RED -> RH3 | SHA256 verification=%s",
+        "enabled" if verify_hashes else "SKIPPED BY USER",
+    )
+    return path, manifest, resolved
+
+
+def _load_crd_drp_atmospheric_mask(
+    mask_path: Path,
+    cube: io.KCWICube,
+    *,
+    expected_science_medium: str,
+) -> tuple[np.ndarray, dict[str, object]]:
+    """Load a native-grid CRD_DRP atmospheric mask and verify exact alignment."""
+    with fits.open(mask_path, memmap=True) as hdul:
+        if hdul[0].data is None:
+            raise ValueError(f"CRD_DRP atmospheric mask contains no primary data: {mask_path}")
+        raw = np.asarray(hdul[0].data)
+        header = hdul[0].header.copy()
+
+    mask = np.asarray(raw).squeeze()
+    if mask.ndim != 1:
+        raise ValueError(
+            f"CRD_DRP atmospheric mask must be 1-D; got shape {raw.shape} in {mask_path}"
+        )
+    if mask.size != cube.nwave:
+        raise ValueError(
+            f"CRD_DRP atmospheric-mask length {mask.size} does not match "
+            f"{cube.arm} science wavelength length {cube.nwave}."
+        )
+    finite = np.isfinite(mask)
+    if not np.all(finite):
+        raise ValueError(f"CRD_DRP atmospheric mask contains non-finite samples: {mask_path}")
+    unique = set(np.unique(mask).tolist())
+    if not unique.issubset({0, 1, False, True}):
+        raise ValueError(
+            f"CRD_DRP atmospheric mask is not binary in {mask_path}; values={sorted(unique)[:12]}"
+        )
+    mask = mask.astype(bool)
+
+    mask_wave = io.wavelength_axis_from_header(header, mask.size, fits_axis=1)
+    if not np.allclose(mask_wave, cube.wavelength, rtol=0.0, atol=1.0e-6):
+        diff = float(np.nanmax(np.abs(mask_wave - cube.wavelength)))
+        raise ValueError(
+            f"CRD_DRP atmospheric-mask wavelength grid does not match {cube.arm} "
+            f"science grid; max |delta lambda|={diff:.6g} A."
+        )
+
+    medium = str(header.get("WAVEMED", "")).strip().lower()
+    if medium not in {"air", "vacuum"}:
+        raise ValueError(
+            f"CRD_DRP atmospheric mask {mask_path} does not declare WAVEMED=air/vacuum."
+        )
+    if medium != str(expected_science_medium).lower():
+        raise ValueError(
+            f"CRD_DRP atmospheric mask is observed {medium}, but {cube.arm} science "
+            f"data are observed {expected_science_medium}. Regenerate the CRD_DRP "
+            "package rather than silently converting the finalized mask."
+        )
+
+    return mask, {
+        "source": str(mask_path),
+        "wavelength_medium": medium,
+        "n_native_pixels": int(mask.size),
+        "n_masked_pixels": int(np.count_nonzero(mask)),
+        "masked_fraction": float(np.mean(mask)),
+    }
+
+
+def _apply_crd_drp_atmospheric_mask(
+    cube: io.KCWICube,
+    atmospheric_mask: np.ndarray,
+) -> tuple[np.ndarray, dict[str, object]]:
+    """Union the CRD_DRP wavelength mask with Script-1's native hard-good mask.
+
+    The original sample-level/native quality state is intentionally retained in
+    ``base_good``, ``good_spaxel``, and ``good_fraction_spaxel``.  Only the
+    authoritative downstream wavelength/sample masks are changed:
+
+        combined GOODWAVE = native GOODWAVE & ~ATMMASK
+        combined GOODMASK = native GOODMASK & ~ATMMASK
+
+    A global atmospheric exclusion therefore cannot by itself invalidate a
+    spatial spaxel.
+    """
+    atm = np.asarray(atmospheric_mask, dtype=bool)
+    if atm.ndim != 1 or atm.size != cube.nwave:
+        raise ValueError("Atmospheric mask does not match cube wavelength dimension.")
+
+    native_good_wavelength = np.asarray(cube.good_wavelength, dtype=bool).copy()
+    native_good_count = int(np.count_nonzero(native_good_wavelength))
+    atmospheric_on_native_good = atm & native_good_wavelength
+
+    cube.good_wavelength = native_good_wavelength & ~atm
+    cube.good = np.asarray(cube.good, dtype=bool) & (~atm)[None, None, :]
+
+    info = {
+        "n_native_good_wavelength_pixels_before_atmosphere": native_good_count,
+        "n_atmospheric_mask_pixels": int(np.count_nonzero(atm)),
+        "n_atmospheric_mask_pixels_overlapping_native_good": int(
+            np.count_nonzero(atmospheric_on_native_good)
+        ),
+        "n_combined_good_wavelength_pixels": int(np.count_nonzero(cube.good_wavelength)),
+        "combined_good_wavelength_fraction": float(np.mean(cube.good_wavelength)),
+    }
+    return native_good_wavelength, info
+
+
+def _append_mask_provenance_to_prepared_cube(
+    prepared_path: Path,
+    *,
+    native_good_wavelength: np.ndarray,
+    atmospheric_mask: np.ndarray,
+    reduction_manifest_path: Path,
+) -> None:
+    """Embed native-vs-atmospheric wavelength provenance in a prepared cube."""
+    with fits.open(prepared_path, mode="update", memmap=False) as hdul:
+        for name in ("NATIVEGW", "ATMMASK"):
+            if name in hdul:
+                raise RuntimeError(
+                    f"Prepared cube already contains {name}; refusing ambiguous overwrite: {prepared_path}"
+                )
+        hdul.append(
+            fits.ImageHDU(
+                np.asarray(native_good_wavelength, dtype=np.uint8),
+                name="NATIVEGW",
+            )
+        )
+        atm_hdu = fits.ImageHDU(
+            np.asarray(atmospheric_mask, dtype=np.uint8),
+            name="ATMMASK",
+        )
+        atm_hdu.header["MASKTRUE"] = (1, "1 means exclude from stellar analysis")
+        hdul.append(atm_hdu)
+        hdul[0].header["CRDRPMF"] = (
+            reduction_manifest_path.name[:68],
+            "Source CRD_DRP reduction manifest basename",
+        )
+        hdul[0].header["CRDATMSK"] = (True, "CRD_DRP atmospheric mask applied")
+        hdul.flush()
+
+def _load_science_arm(arm: str, cfg, logger, reduction_input: dict[str, object] | None = None) -> io.KCWICube:
     """Load one science arm using the configured input layout.
 
     KcwiKit is the production path because it preserves the stacked flux,
@@ -103,6 +374,29 @@ def _load_science_arm(arm: str, cfg, logger) -> io.KCWICube:
     path remains useful for single-cube validation and backwards compatibility.
     """
     prefix = arm.upper()
+
+    if reduction_input is not None:
+        cube = io.load_kcwikit_stack(
+            reduction_input["icube"],
+            reduction_input["vcube"],
+            reduction_input["mcube"],
+            reduction_input["ecube"],
+            arm=arm,
+            min_good_wavelength_fraction=float(cfg.MIN_GOOD_WAVELENGTH_FRACTION),
+            bad_channel_fraction_threshold=float(cfg.BAD_CHANNEL_FRACTION_THRESHOLD),
+            float_dtype=str(cfg.STACK_FLOAT_DTYPE),
+        )
+        logger.info(
+            "%s science input: validated CRD_DRP manifest arm=%s",
+            arm,
+            reduction_input.get("manifest_arm"),
+        )
+        for role, path in (cube.source_paths or {}).items():
+            logger.info("%s %s: %s", arm, role, path)
+        logger.info("%s KcwiKit stack-mask counts: %s", arm, io.summarize_binary_mask(cube.drp_mask))
+        logger.info("%s effective-exposure summary: %s", arm, io.summarize_effective_exposure(cube.exposure))
+        return cube
+
     input_format = str(cfg.SCIENCE_INPUT_FORMAT).strip().lower()
 
     if input_format == "kcwikit":
@@ -439,12 +733,39 @@ def _run_noise_diagnostic(arm: str, cube: io.KCWICube, image: np.ndarray, cfg, r
 
 def main() -> int:
     args = _parser().parse_args()
-    cfg = crd.load_config(args.config, validate=True, strict_paths=True)
+
+    # When a CRD_DRP manifest is supplied, science-cube paths come from that
+    # validated handoff instead of the target config.  Keep structural config
+    # validation, but validate only the non-science external paths here.
+    using_reduction_manifest = args.reduction_manifest is not None
+    cfg = crd.load_config(
+        args.config,
+        validate=True,
+        strict_paths=not using_reduction_manifest,
+    )
+    if using_reduction_manifest:
+        crd.validate_input_paths(
+            cfg,
+            (
+                "BL_MASTER_ARC",
+                "RH3_MASTER_ARC",
+                "PYMORPH_VAC",
+                "XSL_TEMPLATE_LIBRARY",
+            ),
+        )
+
     run = crd.create_run_context(cfg, run_name=args.run_name)
     crd.setup_pipeline_logger(run)
     logger = crd.setup_step_logger(run, "01_prepare_and_register_cubes")
     quality_flags: list[str] = []
     start = time.perf_counter()
+
+    reduction_manifest_path: Path | None = None
+    reduction_manifest: dict | None = None
+    reduction_inputs: dict[str, dict[str, object]] | None = None
+    atmospheric_masks: dict[str, np.ndarray] = {}
+    native_good_wavelengths: dict[str, np.ndarray] = {}
+    atmospheric_provenance: dict[str, dict[str, object]] = {}
 
     try:
         crd.log_section(logger, "CRD_DAP SCRIPT 1: PREPARE AND REGISTER CUBES", "=")
@@ -454,12 +775,39 @@ def main() -> int:
         logger.info("Target: %s", cfg.TARGET_NAME)
         logger.info("Redshift: %.8f", float(cfg.REDSHIFT))
 
+        if using_reduction_manifest:
+            (
+                reduction_manifest_path,
+                reduction_manifest,
+                reduction_inputs,
+            ) = _load_reduction_manifest(
+                args.reduction_manifest,
+                verify_hashes=not bool(args.skip_reduction_hash_check),
+                logger=logger,
+            )
+        else:
+            logger.warning(
+                "LEGACY_SCIENCE_INPUT_PATH | No --reduction-manifest supplied. "
+                "Script 1 will use science-cube paths from the target config and "
+                "no CRD_DRP atmospheric masks will be applied."
+            )
+
         # ------------------------------------------------------------------
         # 1. Read science cubes and establish hard data-quality masks.
         # ------------------------------------------------------------------
         crd.log_section(logger, "1. Load KCWI/KCRM science cubes")
-        bl = _load_science_arm("BL", cfg, logger)
-        rh3 = _load_science_arm("RH3", cfg, logger)
+        bl = _load_science_arm(
+            "BL",
+            cfg,
+            logger,
+            None if reduction_inputs is None else reduction_inputs["BL"],
+        )
+        rh3 = _load_science_arm(
+            "RH3",
+            cfg,
+            logger,
+            None if reduction_inputs is None else reduction_inputs["RH3"],
+        )
 
         for cube in (bl, rh3):
             logger.info(
@@ -505,6 +853,65 @@ def main() -> int:
                 conventions.template_medium,
                 conventions.template_conversion_required,
             )
+
+
+        # ------------------------------------------------------------------
+        # 1b. Apply the validated CRD_DRP atmospheric wavelength masks.
+        # ------------------------------------------------------------------
+        if reduction_inputs is not None:
+            crd.log_section(logger, "1b. Apply CRD_DRP atmospheric masks")
+            for cube in (bl, rh3):
+                prefix = cube.arm.upper()
+                conventions = validation.validate_script1_conventions(
+                    cube.header,
+                    science_medium=cfg.SCIENCE_WAVELENGTH_MEDIUM,
+                    template_medium=cfg.TEMPLATE_WAVELENGTH_MEDIUM,
+                    science_velocity_frame=cfg.SCIENCE_VELOCITY_FRAME,
+                )
+                mask_path = Path(
+                    reduction_inputs[prefix]["atmospheric_mask"]
+                ).expanduser().resolve()
+                atm_mask, mask_info = _load_crd_drp_atmospheric_mask(
+                    mask_path,
+                    cube,
+                    expected_science_medium=conventions.science_medium,
+                )
+                native_good_wave, apply_info = _apply_crd_drp_atmospheric_mask(
+                    cube,
+                    atm_mask,
+                )
+                atmospheric_masks[prefix] = atm_mask
+                native_good_wavelengths[prefix] = native_good_wave
+
+                provenance = {
+                    **mask_info,
+                    **apply_info,
+                    "manifest_arm": reduction_inputs[prefix]["manifest_arm"],
+                    "mask_sha256": reduction_inputs[prefix].get(
+                        "atmospheric_mask_sha256"
+                    ),
+                    "interval_table": (
+                        None
+                        if reduction_inputs[prefix].get("atmospheric_intervals") is None
+                        else str(reduction_inputs[prefix]["atmospheric_intervals"])
+                    ),
+                    "semantics": "True/1 = exclude from stellar analysis",
+                    "applied_in_script": "01_prepare_and_register_cubes.py",
+                }
+                atmospheric_provenance[prefix] = provenance
+
+                logger.info(
+                    "%s CRD_DRP atmospheric mask: %d/%d native channels masked "
+                    "(%.2f%%); overlap with native Script-1 GOODWAVE=%d; "
+                    "combined GOODWAVE=%d/%d",
+                    prefix,
+                    provenance["n_masked_pixels"],
+                    provenance["n_native_pixels"],
+                    100.0 * provenance["masked_fraction"],
+                    provenance["n_atmospheric_mask_pixels_overlapping_native_good"],
+                    provenance["n_combined_good_wavelength_pixels"],
+                    provenance["n_native_pixels"],
+                )
 
         # ------------------------------------------------------------------
         # 2. Continuum images and center diagnostics.
@@ -895,6 +1302,24 @@ def main() -> int:
             run.products_dir / "prepared_RH3.fits",
             overwrite=overwrite,
         )
+        if reduction_manifest_path is not None:
+            _append_mask_provenance_to_prepared_cube(
+                Path(bl_prepared),
+                native_good_wavelength=native_good_wavelengths["BL"],
+                atmospheric_mask=atmospheric_masks["BL"],
+                reduction_manifest_path=reduction_manifest_path,
+            )
+            _append_mask_provenance_to_prepared_cube(
+                Path(rh3_prepared),
+                native_good_wavelength=native_good_wavelengths["RH3"],
+                atmospheric_mask=atmospheric_masks["RH3"],
+                reduction_manifest_path=reduction_manifest_path,
+            )
+            logger.info(
+                "Prepared cubes include NATIVEGW and ATMMASK extensions; "
+                "GOODWAVE/GOODMASK are the authoritative combined masks."
+            )
+
         logger.info("Prepared BL cube: %s", bl_prepared)
         logger.info("Prepared RH3 cube: %s", rh3_prepared)
 
@@ -905,7 +1330,42 @@ def main() -> int:
             "elapsed_seconds": elapsed,
             "prepared_BL": str(bl_prepared),
             "prepared_RH3": str(rh3_prepared),
-            "science_input_format": str(cfg.SCIENCE_INPUT_FORMAT),
+            "science_input_format": (
+                "crd_drp_manifest"
+                if reduction_manifest_path is not None
+                else str(cfg.SCIENCE_INPUT_FORMAT)
+            ),
+            "source_reduction_manifest": (
+                None if reduction_manifest_path is None else str(reduction_manifest_path)
+            ),
+            "source_reduction_manifest_sha256": (
+                None
+                if reduction_manifest_path is None
+                else _sha256_file(reduction_manifest_path)
+            ),
+            "source_reduction_validation_status": (
+                None
+                if reduction_manifest is None
+                else reduction_manifest.get("validation_status")
+            ),
+            "source_reduction_schema": (
+                None if reduction_manifest is None else reduction_manifest.get("schema")
+            ),
+            "reduction_manifest_arm_map": (
+                None if reduction_manifest_path is None else {"BL": "blue", "RH3": "red"}
+            ),
+            "BL_atmospheric_mask": atmospheric_provenance.get("BL"),
+            "RH3_atmospheric_mask": atmospheric_provenance.get("RH3"),
+            "prepared_mask_contract": (
+                None
+                if reduction_manifest_path is None
+                else {
+                    "GOODWAVE": "native Script-1 wavelength quality AND NOT CRD_DRP ATMMASK",
+                    "GOODMASK": "native Script-1 sample quality AND combined GOODWAVE",
+                    "NATIVEGW": "Script-1 native wavelength quality before CRD_DRP atmosphere",
+                    "ATMMASK": "CRD_DRP atmospheric mask; 1 means excluded",
+                }
+            ),
             "BL_source_paths": {k: str(v) for k, v in (bl.source_paths or {}).items()},
             "RH3_source_paths": {k: str(v) for k, v in (rh3.source_paths or {}).items()},
             "BL_effective_exposure": io.summarize_effective_exposure(bl.exposure),
