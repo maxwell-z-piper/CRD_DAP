@@ -45,15 +45,15 @@ REDSHIFT = 0.04138  # dimensionless; required
 # spatial/spectral WCS before using them.
 SCIENCE_INPUT_FORMAT = "kcwikit"  # supported: "kcwikit" (production), "drp" (legacy/testing)
 
-BL_ICUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/test_blue_icubes.fits")
-BL_VCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/test_blue_vcubes.fits")
-BL_MCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/test_blue_mcubes.fits")
-BL_ECUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/test_blue_ecubes.fits")
+BL_ICUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/blue_kskywizard_icubes.fits")
+BL_VCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/blue_kskywizard_vcubes.fits")
+BL_MCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/blue_kskywizard_mcubes.fits")
+BL_ECUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/blue_kskywizard_ecubes.fits")
 
-RH3_ICUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/test_red_icubes.fits")
-RH3_VCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/test_red_vcubes.fits")
-RH3_MCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/test_red_mcubes.fits")
-RH3_ECUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/test_red_ecubes.fits")
+RH3_ICUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/red_kskywizard_icubes.fits")
+RH3_VCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/red_kskywizard_vcubes.fits")
+RH3_MCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/red_kskywizard_mcubes.fits")
+RH3_ECUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/red_kskywizard_ecubes.fits")
 
 # Optional legacy/native-DRP input mode. These are ignored when
 # SCIENCE_INPUT_FORMAT="kcwikit". A DRP cube must contain an UNCERT extension.
@@ -347,11 +347,34 @@ RH3_FIT_REST_RANGE_ANGSTROM = (7000.0, 8250.0)
 
 # Optional explicit masks. Observed-frame masks are useful for persistent sky /
 # telluric residuals; rest-frame masks are useful for target-independent stellar
-# or reduction features. Script 3 constructs one fixed good-pixel set per bin
-# and uses that identical set for the 1-component control and every 2-component
-# grid state. It never state-dependently sigma-clips the spectrum.
+# or reduction features. IMPORTANT: RH3_MASK_OBSERVED_RANGES_ANGSTROM is interpreted
+# in the native SCIENCE wavelength medium of the reduced cube (vacuum for the
+# current KCWI products), because Script 3 applies it directly to the observed
+# science wavelength array before conversion to the template/rest frame.
+#
+# For real-data development, use Script 03d to build an externally anchored
+# atmospheric mask from empirical pre-ZAP/sky-model spectra and, when available,
+# a telluric transmission reference. Use Script 03b recurrence only as QC, then
+# test the 03d table with Script 03c before rebuilding the full Script-3 cubes.
+#
+# Script 3 constructs one fixed good-pixel set per bin and uses that identical set
+# for the 1-component control and every 2-component grid state. It never
+# state-dependently sigma-clips the spectrum.
 RH3_MASK_OBSERVED_RANGES_ANGSTROM = []
 RH3_MASK_REST_RANGES_ANGSTROM = []
+
+# Preferred production path for atmospheric masking. Script 03d derives this
+# table from empirical pre-ZAP / sky-model spectra and (optionally) an actual
+# telluric transmission reference. Script 03b residual recurrence is used only
+# as a QC cross-check and does not select the mask wavelengths.
+#
+# Leave None while diagnosing/testing. After the 03d table passes Script 03c
+# selected/full-grid tests, point this at the accepted ECSV table. Relative paths
+# are resolved from PROJECT_ROOT. Script 3 validates the table wavelength medium
+# and unions these intervals with any explicit RH3_MASK_OBSERVED_RANGES_ANGSTROM.
+RH3_ATMOSPHERIC_MASK_FILE = None
+# Example after validation:
+# RH3_ATMOSPHERIC_MASK_FILE = Path("runs/<script3-run>/validation/03d_atmosphere/products/RH3_03d_atmospheric_mask.ecsv")
 
 # If None, Script 3 adopts the median native log-lambda sampling of the prepared
 # RH3 spectrum. An explicit value is allowed for controlled convergence tests.
