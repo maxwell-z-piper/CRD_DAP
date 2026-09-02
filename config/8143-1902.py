@@ -45,23 +45,23 @@ REDSHIFT = 0.04138  # dimensionless; required
 # spatial/spectral WCS before using them.
 SCIENCE_INPUT_FORMAT = "kcwikit"  # supported: "kcwikit" (production), "drp" (legacy/testing)
 
-BL_ICUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/blue_kskywizard_icubes.fits")
-BL_VCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/blue_kskywizard_vcubes.fits")
-BL_MCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/blue_kskywizard_mcubes.fits")
-BL_ECUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/blue_kskywizard_ecubes.fits")
+BL_ICUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/blue_kskywizard_icubes.fits")
+BL_VCUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/blue_kskywizard_vcubes.fits")
+BL_MCUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/blue_kskywizard_mcubes.fits")
+BL_ECUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/blue_kskywizard_ecubes.fits")
 
-RH3_ICUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/red_kskywizard_icubes.fits")
-RH3_VCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/red_kskywizard_vcubes.fits")
-RH3_MCUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/red_kskywizard_mcubes.fits")
-RH3_ECUBE = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/red_kskywizard_ecubes.fits")
+RH3_ICUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/red_kskywizard_icubes.fits")
+RH3_VCUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/red_kskywizard_vcubes.fits")
+RH3_MCUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/red_kskywizard_mcubes.fits")
+RH3_ECUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/red_kskywizard_ecubes.fits")
 
 # Optional legacy/native-DRP input mode. These are ignored when
 # SCIENCE_INPUT_FORMAT="kcwikit". A DRP cube must contain an UNCERT extension.
 BL_CUBE = Path("/path/to/stacked_or_single_BL_icubew.fits")
 RH3_CUBE = Path("/path/to/stacked_or_single_RH3_icubew.fits")
 
-BL_MASTER_ARC = Path("/Users/maxpiper/Desktop/CRD_Decomposition/KCWI_TestData/kb241226_00021_marc.fits")
-RH3_MASTER_ARC = Path("/Users/maxpiper/Desktop/CRD_Decomposition/KCWI_TestData/kr241226_00025_marc.fits")
+BL_MASTER_ARC = Path("/Users/maxpiper/KCWI_Data/redux/kb241226_00021_marc.fits")
+RH3_MASTER_ARC = Path("/Users/maxpiper/KCWI_Data/redux/kr241226_00025_marc.fits")
 
 PYMORPH_VAC = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/manga-pymorph-DR17.fits")
 XSL_TEMPLATE_LIBRARY = Path("/Users/maxpiper/Desktop/CRD_Decomposition/CRD_DAP_TestData/spectra_xsl_9.0.npz")
