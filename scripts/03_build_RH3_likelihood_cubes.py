@@ -429,11 +429,82 @@ def _resolve_science_medium(cfg, prepared_header) -> str:
     return configured
 
 
+def _merge_mask_intervals(intervals: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    clean = []
+    for lo, hi in intervals:
+        lo = float(lo)
+        hi = float(hi)
+        if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+            raise ValueError(f"Invalid observed-frame mask interval ({lo}, {hi}).")
+        clean.append((lo, hi))
+    if not clean:
+        return []
+    clean.sort(key=lambda x: x[0])
+    merged = [list(clean[0])]
+    for lo, hi in clean[1:]:
+        if lo <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    return [(float(lo), float(hi)) for lo, hi in merged]
+
+
+def _resolve_atmospheric_mask_file(cfg, science_medium: str) -> tuple[list[tuple[float, float]], Path | None]:
+    value = getattr(cfg, "RH3_ATMOSPHERIC_MASK_FILE", None)
+    if value in (None, ""):
+        return [], None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path(cfg.PROJECT_ROOT) / path
+    path = path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"RH3_ATMOSPHERIC_MASK_FILE does not exist: {path}")
+    tab = Table.read(path, format="ascii.ecsv")
+    medium = str(tab.meta.get("OBSERVED_SCIENCE_WAVELENGTH_MEDIUM", "unknown")).strip().lower()
+    if medium not in {"air", "vacuum"}:
+        raise ValueError(
+            f"Atmospheric mask table {path} does not declare OBSERVED_SCIENCE_WAVELENGTH_MEDIUM as air/vacuum."
+        )
+    if medium != science_medium:
+        raise ValueError(
+            f"Atmospheric mask table is in observed {medium}, but RH3 science data are {science_medium}. "
+            "Regenerate Script 03d for this Script-3 wavelength convention; do not silently convert a saved mask."
+        )
+    required = {"OBSERVED_SCIENCE_LO_ANGSTROM", "OBSERVED_SCIENCE_HI_ANGSTROM"}
+    if not required.issubset(tab.colnames):
+        raise ValueError(f"Atmospheric mask table {path} lacks required columns {sorted(required)}.")
+    intervals = []
+    for row in tab:
+        if "INCLUDED_IN_ATMOSPHERIC_MASK" in tab.colnames and not bool(row["INCLUDED_IN_ATMOSPHERIC_MASK"]):
+            continue
+        intervals.append((
+            float(row["OBSERVED_SCIENCE_LO_ANGSTROM"]),
+            float(row["OBSERVED_SCIENCE_HI_ANGSTROM"]),
+        ))
+    if not intervals:
+        raise ValueError(f"Atmospheric mask table {path} contains no included intervals.")
+    return _merge_mask_intervals(intervals), path
+
+
+def _resolve_observed_masks(cfg, science_medium: str) -> tuple[list[tuple[float, float]], dict]:
+    manual = [(float(lo), float(hi)) for lo, hi in getattr(cfg, "RH3_MASK_OBSERVED_RANGES_ANGSTROM", [])]
+    atmospheric, atmospheric_path = _resolve_atmospheric_mask_file(cfg, science_medium)
+    combined = _merge_mask_intervals(manual + atmospheric)
+    provenance = {
+        "manual_config_ranges": [[float(lo), float(hi)] for lo, hi in manual],
+        "atmospheric_mask_file": None if atmospheric_path is None else str(atmospheric_path),
+        "atmospheric_file_ranges": [[float(lo), float(hi)] for lo, hi in atmospheric],
+        "effective_ranges": [[float(lo), float(hi)] for lo, hi in combined],
+    }
+    return combined, provenance
+
+
 def _apply_native_masks(
     native_wave_obs: np.ndarray,
     native_wave_rest_template: np.ndarray,
     native_good: np.ndarray,
-    cfg,
+    observed_masks: list[tuple[float, float]],
+    rest_masks: list[tuple[float, float]],
     lsf_model: templates.SavedLSFModel,
 ) -> np.ndarray:
     good = np.asarray(native_good, dtype=bool).copy()
@@ -442,9 +513,9 @@ def _apply_native_masks(
         (native_wave_obs >= float(lsf_model.empirical_min))
         & (native_wave_obs <= float(lsf_model.empirical_max))
     )
-    for lo, hi in getattr(cfg, "RH3_MASK_OBSERVED_RANGES_ANGSTROM", []):
+    for lo, hi in observed_masks:
         good &= ~((native_wave_obs >= float(lo)) & (native_wave_obs <= float(hi)))
-    for lo, hi in getattr(cfg, "RH3_MASK_REST_RANGES_ANGSTROM", []):
+    for lo, hi in rest_masks:
         good &= ~(
             (native_wave_rest_template >= float(lo))
             & (native_wave_rest_template <= float(hi))
@@ -478,6 +549,8 @@ def _prepare_log_binned_spectra(
     fit_range: tuple[float, float],
     velscale: float,
     cfg,
+    observed_masks: list[tuple[float, float]],
+    rest_masks: list[tuple[float, float]],
     lsf_model: templates.SavedLSFModel,
 ):
     rest_science = np.asarray(wave_obs, dtype=float) / (1.0 + float(redshift))
@@ -499,7 +572,8 @@ def _prepare_log_binned_spectra(
             wave_obs,
             rest_template,
             good_native[bid],
-            cfg,
+            observed_masks,
+            rest_masks,
             lsf_model,
         )
         f, n, g, frac = templates.rebin_spectrum_with_diagonal_noise(
@@ -1258,6 +1332,22 @@ def main() -> int:
             "RH3 fitting interval: %.1f--%.1f A rest (%s) | log-grid velocity scale=%.3f km/s/pixel",
             fit_range[0], fit_range[1], template_medium, velscale,
         )
+        observed_masks, observed_mask_provenance = _resolve_observed_masks(cfg, science_medium)
+        rest_masks = [(float(lo), float(hi)) for lo, hi in getattr(cfg, "RH3_MASK_REST_RANGES_ANGSTROM", [])]
+        if observed_masks:
+            logger.info(
+                "RH3 effective fixed observed-frame masks (%s science wavelength medium): %s",
+                science_medium, observed_masks,
+            )
+            if observed_mask_provenance["atmospheric_mask_file"] is not None:
+                logger.info(
+                    "RH3 atmospheric mask source: %s | file intervals=%d | manual config intervals=%d",
+                    observed_mask_provenance["atmospheric_mask_file"],
+                    len(observed_mask_provenance["atmospheric_file_ranges"]),
+                    len(observed_mask_provenance["manual_config_ranges"]),
+                )
+        if rest_masks:
+            logger.info("RH3 fixed rest-frame masks (%s template medium): %s", template_medium, rest_masks)
         if float(cfg.RH3_SIGMA_START_KMS) < 3.0 * velscale:
             logger.warning(
                 "SIGMA_START_UNDERSAMPLED | RH3_SIGMA_START_KMS=%.2f is <3 log pixels (%.2f km/s); pPXF may be less stable.",
@@ -1276,6 +1366,8 @@ def main() -> int:
             fit_range=fit_range,
             velscale=velscale,
             cfg=cfg,
+            observed_masks=observed_masks,
+            rest_masks=rest_masks,
             lsf_model=lsf_model,
         )
         good_counts = np.sum(good_all, axis=1)
@@ -1283,6 +1375,50 @@ def main() -> int:
             "Log spectra: %d pixels/bin; good-pixel count median=%d, min=%d, max=%d",
             log_wave.size, int(np.median(good_counts)), int(np.min(good_counts)), int(np.max(good_counts)),
         )
+
+        # The science representation intentionally retains NaNs in rejected
+        # log-grid samples. pPXF, however, requires its complete galaxy/noise
+        # vectors to be finite and its complete noise vector to be positive even
+        # when those samples are absent from goodpixels. Verify here that every
+        # *fitted* sample is already valid; ppxf_utils will replace only invalid
+        # excluded samples in private copies passed to pPXF.
+        good_bool = np.asarray(good_all, dtype=bool)
+        invalid_good_galaxy = good_bool & ~np.isfinite(gal_all)
+        invalid_good_noise = good_bool & (~np.isfinite(noise_all) | (noise_all <= 0))
+        if np.any(invalid_good_galaxy) or np.any(invalid_good_noise):
+            bad_bins = np.flatnonzero(
+                np.any(invalid_good_galaxy | invalid_good_noise, axis=1)
+            )
+            raise RuntimeError(
+                "SCRIPT03_INVALID_GOODPIXELS | The fixed good-pixel mask includes "
+                "non-finite galaxy flux or non-finite/non-positive noise. This is a "
+                "science-mask inconsistency and must not be repaired with pPXF placeholders. "
+                f"Affected bins={bad_bins.size}/{nbin}; examples={bad_bins[:12].tolist()}"
+            )
+
+        excluded = ~good_bool
+        galaxy_placeholders = excluded & ~np.isfinite(gal_all)
+        noise_placeholders = excluded & (~np.isfinite(noise_all) | (noise_all <= 0))
+        placeholder_union = galaxy_placeholders | noise_placeholders
+        placeholder_counts = np.sum(placeholder_union, axis=1)
+        placeholder_bins = np.flatnonzero(placeholder_counts > 0)
+        if placeholder_bins.size:
+            logger.info(
+                "pPXF excluded-pixel API sanitization required for %d/%d bins: "
+                "galaxy placeholders=%d, noise placeholders=%d; median/max affected "
+                "samples per affected bin=%d/%d. Only private pPXF input copies are "
+                "filled; these samples remain outside goodpixels and the saved science "
+                "arrays retain their original NaN/mask representation.",
+                int(placeholder_bins.size), nbin,
+                int(np.sum(galaxy_placeholders)), int(np.sum(noise_placeholders)),
+                int(np.median(placeholder_counts[placeholder_bins])),
+                int(np.max(placeholder_counts[placeholder_bins])),
+            )
+        else:
+            logger.info(
+                "pPXF excluded-pixel API sanitization: no placeholder fills are required."
+            )
+
         too_short = np.flatnonzero(good_counts < int(cfg.RH3_MIN_GOOD_LOG_PIXELS))
         if too_short.size:
             raise RuntimeError(
@@ -1549,6 +1685,7 @@ def main() -> int:
         manifest = {
             "script": "03_build_RH3_likelihood_cubes",
             "target": str(cfg.TARGET_NAME),
+            "redshift": float(cfg.REDSHIFT),
             "source_script2_run": str(source_run),
             "source_script1_run": str(script1_run),
             "source_script2_quality_flags": list(s02_manifest.get("quality_flags", [])),
@@ -1563,6 +1700,16 @@ def main() -> int:
             "fit_rest_range_angstrom": [float(fit_range[0]), float(fit_range[1])],
             "science_wavelength_medium": science_medium,
             "template_wavelength_medium": template_medium,
+            "observed_mask_wavelength_medium": science_medium,
+            "configured_observed_mask_ranges_angstrom": [
+                [float(lo), float(hi)] for lo, hi in getattr(cfg, "RH3_MASK_OBSERVED_RANGES_ANGSTROM", [])
+            ],
+            "atmospheric_mask_file": observed_mask_provenance["atmospheric_mask_file"],
+            "atmospheric_mask_file_ranges_angstrom": observed_mask_provenance["atmospheric_file_ranges"],
+            "effective_observed_mask_ranges_angstrom": observed_mask_provenance["effective_ranges"],
+            "configured_rest_mask_ranges_angstrom": [
+                [float(lo), float(hi)] for lo, hi in getattr(cfg, "RH3_MASK_REST_RANGES_ANGSTROM", [])
+            ],
             "velscale_kms": float(velscale),
             "template_support": {
                 "two_component_max_abs_velocity_kms": float(support["two_component_max_abs_kms"]),
