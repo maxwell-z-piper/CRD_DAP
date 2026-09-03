@@ -19,7 +19,7 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[science,dev]"
 ```
 
-Lastly, install the pPXF patch. Details can be found in the `bash /ppxf_patch_9_4_8/` folder. 
+Lastly, install the pPXF patch. Details can be found in the `/ppxf_patch_9_4_8/` folder. 
 
 Finally, run the pytest command to ensure everything is installed correctly.
 
