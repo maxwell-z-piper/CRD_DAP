@@ -521,10 +521,7 @@ Because nuisance parameters are optimized at every explicit $(V_A,V_B,f_A)$ coor
 The fundamental statistic saved by the cube is the **total** chi-square on the fixed fitted pixels,
 
 $$
-\chi^2_{\rm total}
-=
-\sum_{p\in\mathrm{good}}
-\left[\frac{F_p-M_p}{\sigma_p}\right]^2
+\chi^2_{\rm total}=\sum_{p\in\mathrm{good}}\left[\frac{F_p-M_p}{\sigma_p}\right]^2
 $$
 
 for the current diagonal-noise development model. pPXF's reduced $\chi^2$ is retained as QC, but downstream relative-likelihood calculations must use differences in total chi-square.
@@ -609,10 +606,7 @@ $$
 Both components then receive identical copies of this normalized SSP basis. pPXF's two-component `fraction` constraint is
 
 $$
-f_{A,\mathrm{RH3}}
-=
-\frac{\sum_j w_{A,j}}
-{\sum_j w_{A,j}+\sum_j w_{B,j}}.
+f_{A,\mathrm{RH3}}=\frac{\sum_j w_{A,j}}{\sum_j w_{A,j}+\sum_j w_{B,j}}.
 $$
 
 Because all SSPs share the same passband normalization, this has the intended interpretation:
