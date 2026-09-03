@@ -432,6 +432,60 @@ RH3_TEMPLATE_PADDING_SIGMA = 4.0
 # successfully, delete them to avoid permanently duplicating the likelihood data.
 SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS = True
 
+# These are numerical/statistical controls, not physical priors on the galaxy.
+# Script 3 records the adopted values in its manifest.  The defaults below are
+# the production baseline developed for the CRD_DAP covariance-calibration
+# architecture and should be changed only through an explicit sensitivity test.
+RH3_COVARIANCE_ENABLE = True
+RH3_COVARIANCE_REQUIRED_PPXF_VERSION = "9.4.8"
+
+# Measure residual autocorrelation over a deliberately generous lag range.
+# Lags whose simultaneous 95% PowerBin-bootstrap band contains zero are treated
+# as statistically consistent with zero rather than retained because of a
+# single-lag fluctuation.
+RH3_COVARIANCE_MAX_LAG = 20
+RH3_COVARIANCE_MIN_PAIRS = 25
+RH3_COVARIANCE_BOOTSTRAP_N = 2000
+RH3_COVARIANCE_BOOTSTRAP_CONFIDENCE = 0.95
+RH3_COVARIANCE_RANDOM_SEED = 12345
+
+# M3/M4 permit wavelength non-stationarity through equal-width wavelength
+# blocks. M2 uses one stationary correlation curve over the complete fit band.
+RH3_COVARIANCE_WAVELENGTH_BLOCKS = 3
+
+# Free two-component residual-calibration fits.  Each fraction of the common
+# VA/VB search span is tried in both component orderings.  These are optimizer
+# starts only; they are not priors and their returned disk labels are not used
+# as physical measurements.
+RH3_COVARIANCE_CALIBRATION_SEPARATION_FRACTIONS = (0.15, 0.40, 0.75)
+
+# Iterative residual -> covariance -> covariance-aware refit loop.  Convergence
+# requires BOTH max fractional change in s_i and max absolute change in rho(k)
+# to be < 0.01.  The production likelihood grid never starts after MAX_ITER.
+RH3_COVARIANCE_CONVERGENCE_TOL = 0.01
+RH3_COVARIANCE_MAX_ITER = 5
+RH3_COVARIANCE_WHITENED_SCALE_TOL = 0.05
+
+# Small numerical positive-definiteness floor used only if the directly measured
+# finite-sample correlation matrix is not Cholesky-factorable.  Any use is
+# counted and recorded as QC; this does not choose the empirical lag structure.
+RH3_COVARIANCE_EIGEN_FLOOR = 1.0e-8
+
+# Requirement-B representative PowerBins: 12 deterministic radial samples,
+# six per side of PA_kin, plus up to one added off-center sigma peak per side.
+RH3_COVARIANCE_VALIDATION_RADIAL_BINS = 12
+RH3_COVARIANCE_PA_CORRIDOR_DIAMETER_FACTOR = 1.0
+RH3_COVARIANCE_ADD_2SIGMA_BINS = True
+RH3_COVARIANCE_2SIGMA_INNER_RADIUS_FRACTION = 0.10
+RH3_COVARIANCE_2SIGMA_OUTER_RADIUS_FRACTION = 0.95
+
+# Requirement-B agreement is judged at the actual production-grid resolution.
+# Best cells and the edges of 1-D profile-likelihood regions at these Delta-chi2
+# levels may move by at most one production grid cell under added covariance
+# complexity.
+RH3_COVARIANCE_MODEL_AGREEMENT_MAX_CELL_SHIFT = 1
+RH3_COVARIANCE_MODEL_AGREEMENT_DELTA_CHI2 = (1.0, 4.0)
+
 # =============================================================================
 # 11. SCRIPT 4: GLOBAL XOOKSUUT-STYLE DISK MODEL
 # =============================================================================
