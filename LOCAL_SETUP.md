@@ -11,13 +11,19 @@ conda create -n crd_dap python=3.12
 conda activate crd_dap
 ```
 
-Within this environment, cd into CRD_DAP. Upgrade pip and install all the necessary packages. Then, run the pytest command to ensure everything is installed correctly.
+Within this environment, cd into CRD_DAP. Upgrade pip and install all the necessary packages.
 
 ```bash
 cd CRD_DAP
 python -m pip install --upgrade pip
 python -m pip install -e ".[science,dev]"
+```
 
+Lastly, install the pPXF patch. Details can be found in the `bash /ppxf_patch_9_4_8/` folder. 
+
+Finally, run the pytest command to ensure everything is installed correctly.
+
+```bash
 python -m pytest -q
 ```
 
