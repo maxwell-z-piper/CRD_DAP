@@ -908,7 +908,7 @@ $$
 
 state grid. No narrowed $\Delta V$ stencil is substituted for this validation.
 
-**Requirement B** compares the scientific outputs of candidate covariance models at the resolution of the production grid. It compares the location of the minimum and the edges of one-dimensional profile-$\Delta\chi^2$ intervals at configured levels (development defaults $\Delta\chi^2=1$ and 4). The default numerical stability allowance is one production-grid cell on any axis. These are grid-resolution/sensitivity settings rather than physical priors and should be checked before publication.
+**Requirement B** compares the scientific outputs of candidate covariance models at the resolution of the production grid. It compares the location of the minimum and the edges of one-dimensional profile $\Delta\chi^2$ intervals at configured levels (development defaults $\Delta\chi^2=1$ and 4). The default numerical stability allowance is one production-grid cell on any axis. These are grid-resolution/sensitivity settings rather than physical priors and should be checked before publication.
 
 The final decision rule is:
 
