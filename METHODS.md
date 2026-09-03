@@ -571,10 +571,7 @@ Because nuisance parameters are optimized at every explicit $(V_A,V_B,f_A)$ coor
 The fundamental statistic saved by the cube is the **total** chi-square on the fixed fitted pixels,
 
 $$
-\chi^2_{\rm total}
-=
-\sum_{p\in\mathrm{good}}
-\left[\frac{F_p-M_p}{\sigma_p}\right]^2
+\chi^2_{\rm total} = \sum_{p\in\mathrm{good}} \left[\frac{F_p-M_p}{\sigma_p}\right]^2
 $$
 
 for the current diagonal-noise development model. pPXF's reduced $\chi^2$ is retained as QC, but downstream relative-likelihood calculations must use differences in total chi-square.
@@ -661,10 +658,7 @@ $$
 Both components then receive identical copies of this normalized SSP basis. pPXF's two-component `fraction` constraint is
 
 $$
-f_{A,\mathrm{RH3}}
-=
-\frac{\sum_j w_{A,j}}
-{\sum_j w_{A,j}+\sum_j w_{B,j}}.
+f_{A,\mathrm{RH3}} = \frac{\sum_j w_{A,j}} {\sum_j w_{A,j}+\sum_j w_{B,j}}.
 $$
 
 Because all SSPs share the same passband normalization, this has the intended interpretation:
@@ -748,11 +742,7 @@ $$
 The local raw comparison
 
 $$
-T_i
-=
-\chi^2_{1C,i}
--
-\min_{V_A,V_B,f_A}\chi^2_{2C,i}
+T_i = \chi^2_{1C,i} - \min_{V_A,V_B,f_A}\chi^2_{2C,i}
 $$
 
 is useful QC but is **not** converted directly into a textbook p-value. Secure two-component recovery is calibrated with mocks because mixture-model regularity assumptions are not guaranteed here.
@@ -886,10 +876,7 @@ The code should not silently decide based on an undocumented threshold. It shoul
 Baseline:
 
 $$
-\Theta=
-\{x_0,y_0,PA,i,V_{\mathrm{sys}},
-V_{A,1}\ldots V_{A,K},
-V_{B,1}\ldots V_{B,K}\}.
+\Theta= \{x_0,y_0,PA,i,V_{\mathrm{sys}}, V_{A,1}\ldots V_{A,K}, V_{B,1}\ldots V_{B,K}\}.
 $$
 
 Both disks share center, PA, inclination, and systemic velocity initially. They have independent non-parametric ring velocities.
@@ -1009,9 +996,7 @@ The global disk model predicts continuous velocities that generally do not land 
 For every bin, rerun pPXF at
 
 $$
-V_{A,i}^{\mathrm{global}},
-\qquad
-V_{B,i}^{\mathrm{global}}
+V_{A,i}^{\mathrm{global}}, \qquad V_{B,i}^{\mathrm{global}}
 $$
 
 rather than reporting only interpolated nuisance parameters from the coarse grid.
@@ -1219,9 +1204,7 @@ A repeated cell may require only one expensive BL pPXF calculation; its multipli
 For a sampled RH3 state, BL supplies
 
 $$
-L_{\mathrm{BL}}(c,f_A)
-\propto
-\exp\left[-\frac{\Delta\chi^2_{\mathrm{BL}}}{2}\right].
+L_{\mathrm{BL}}(c,f_A) \propto \exp\left[-\frac{\Delta\chi^2_{\mathrm{BL}}}{2}\right].
 $$
 
 Because the proposal draws already follow the RH3 distribution, the BL likelihood reweights the sampled ensemble toward the joint RH3+BL target.
@@ -1316,17 +1299,7 @@ This preserves correlations between the two disk population measurements better 
 The gold-standard realization is end-to-end:
 
 $$
-\mathrm{perturb\ RH3}
-\rightarrow
-\mathrm{RH3\ likelihood}
-\rightarrow
-\mathrm{global\ disk\ model}
-\rightarrow
-\mathrm{exact\ RH3\ extraction}
-\rightarrow
-\mathrm{perturb\ BL}
-\rightarrow
-\mathrm{population\ fit}.
+\mathrm{perturb\ RH3} \rightarrow \mathrm{RH3\ likelihood} \rightarrow \mathrm{global\ disk\ model} \rightarrow \mathrm{exact\ RH3\ extraction} \rightarrow \mathrm{perturb\ BL} \rightarrow \mathrm{population\ fit}.
 $$
 
 This captures the fact that BL populations are conditional on uncertain RH3 kinematics.
