@@ -10,14 +10,16 @@ noise_inv_cholesky=W
 
 where
 
-```text
+$$
 C = L L^T
-W = L^-1
-```
+$$
+$$
+W = L^{-1}
+$$
 
-`C` is the spectral covariance matrix, `L` is its lower-triangular Cholesky factor, and `W` is the inverse lower-Cholesky factor. Supplying `W` allows CRD_DAP to factor a frozen covariance matrix once and reuse the exact same whitening operator for all subsequent pPXF fits for that spectrum.
+$C$ is the spectral covariance matrix, $L$ is its lower-triangular Cholesky factor, and $W$ is the inverse lower-Cholesky factor. Supplying $W$ allows CRD_DAP to factor a frozen covariance matrix once and reuse the exact same whitening operator for all subsequent pPXF fits for that spectrum.
 
-The normal positional `noise` argument is still required by pPXF. In cached mode CRD_DAP should pass a valid positive 1-D uncertainty vector there; after standard pPXF input validation the patched code replaces pPXF's internal weighting operator with the supplied `W`.
+The normal positional `noise` argument is still required by pPXF. In cached mode CRD_DAP should pass a valid positive 1-D uncertainty vector there; after standard pPXF input validation the patched code replaces pPXF's internal weighting operator with the supplied $W$.
 
 ## Scope
 
@@ -133,11 +135,13 @@ Alternatively, reinstalling pPXF 9.4.8 inside the environment will replace the l
 
 For PowerBin `i`, once covariance calibration has converged:
 
-```text
+$$
 C_i = L_i L_i^T
-W_i = L_i^-1
-```
+$$
+$$
+W_i = L_i^{-1}
+$$
 
-CRD_DAP should save and freeze `W_i`. Every likelihood-grid state for that PowerBin then uses the same `W_i` through `noise_inv_cholesky`.
+CRD_DAP should save and freeze $W_i$. Every likelihood-grid state for that PowerBin then uses the same $W_i$ through `noise_inv_cholesky`.
 
-The covariance/whitener must be recalculated if the actual spectral experiment changes, including bin membership, wavelength grid, masks, reduction, or other operations that change the noise covariance. Merely refining `(V_A, V_B, f_A)` later does not require recalibration; the same frozen RH3 whitener can be reused by later RH3 refinement stages.
+The covariance/whitener must be recalculated if the actual spectral experiment changes, including bin membership, wavelength grid, masks, reduction, or other operations that change the noise covariance. Merely refining $(V_A, V_B, f_A)$ later does not require recalibration; the same frozen RH3 whitener can be reused by later RH3 refinement stages.
