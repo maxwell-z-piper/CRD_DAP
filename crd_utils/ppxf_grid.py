@@ -77,6 +77,7 @@ def build_rh3_likelihood_cube(
     degree: int,
     mdegree: int,
     regul: float = 0.0,
+    noise_inv_cholesky: np.ndarray | None = None,
     sigma_boundary_tolerance_kms: float = 2.0,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> RH3LikelihoodCube:
@@ -127,6 +128,7 @@ def build_rh3_likelihood_cube(
                     degree=int(degree),
                     mdegree=int(mdegree),
                     regul=float(regul),
+                    noise_inv_cholesky=noise_inv_cholesky,
                     keep_full=False,
                 )
                 idx = (ia, ib, jf)

@@ -1,15 +1,15 @@
 """Standardized pPXF wrappers for CRD_DAP spectral likelihood work.
 
-Script 3 uses these functions to ensure that every likelihood-grid state is
-compared on exactly the same log-wavelength samples, with the same uncertainty
-model and the same continuum treatment.  The wrappers intentionally import
-pPXF lazily so lightweight CRD_DAP utilities and unit tests do not require the
-optional science dependency merely to import the package.
+All likelihood states for one PowerBin are compared on exactly the same
+log-wavelength samples, with the same continuum treatment and the same *frozen*
+noise model.  For covariance-aware fits CRD_DAP uses the validated pPXF-9.4.8
+``noise_inv_cholesky`` patch: a precomputed ``W=L^-1`` is reused for every
+state rather than repeatedly factorizing the same covariance matrix.
 
-The statistically important quantity returned here is the *total* chi-square
-on the fixed good-pixel set.  ``pp.chi2`` is also retained as a reduced-chi2 QC
-quantity, but relative likelihoods must be formed from differences in total
-chi-square, not from differences in ``pp.chi2``.
+The statistically important quantity returned here is total chi-square.  For a
+diagonal noise vector this is ``sum((r/sigma)^2)``.  For a cached covariance
+whitener it is ``sum((W r)[goodpixels]^2)``.  pPXF's reduced ``pp.chi2`` is kept
+only as a QC quantity.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+
+from .covariance import covariance_total_chi2
 
 
 @dataclass
@@ -52,28 +54,18 @@ def _validate_spectrum_inputs(
     noise: np.ndarray,
     lam: np.ndarray,
     goodpixels: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    noise_inv_cholesky: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """Validate a spectrum and build pPXF-safe *private* input vectors.
 
-    pPXF requires the complete ``galaxy`` vector to be finite and the complete
-    ``noise`` vector to be finite and strictly positive, even for samples that
-    are absent from ``goodpixels``.  CRD_DAP deliberately represents rejected
-    log-grid samples as NaN, so those two conventions need a narrow interface
-    translation.
+    CRD_DAP keeps rejected log-grid samples as NaN. pPXF validates complete input
+    vectors before applying ``goodpixels``, so only already-excluded invalid
+    samples receive benign local placeholders. Fitted samples are never repaired.
 
-    Scientifically valid samples are never altered: every index in
-    ``goodpixels`` must already contain finite galaxy flux and finite positive
-    noise, otherwise this function raises.  Only excluded samples that violate
-    pPXF's full-vector API contract are replaced in local copies.  They remain
-    absent from ``goodpixels`` and therefore contribute neither to the pPXF fit
-    nor to CRD_DAP's explicit total-chi-square calculation.
-
-    The caller's arrays are never modified in place.  This is important because
-    Script 3 keeps the original NaN/mask representation in its checkpoints and
-    diagnostic products.
+    When a cached inverse-Cholesky matrix is supplied it must match the complete
+    pPXF vector. Its fitted rows must not depend on excluded residuals; the
+    covariance constructor enforces this invariant when the matrix is built.
     """
-    # Private copies are intentional: API-only placeholder values must never
-    # leak back into the science arrays/checkpoints kept by Script 3.
     galaxy = np.array(galaxy, dtype=float, copy=True)
     noise = np.array(noise, dtype=float, copy=True)
     lam = np.asarray(lam, dtype=float)
@@ -94,30 +86,37 @@ def _validate_spectrum_inputs(
     if np.any(~np.isfinite(lam)) or np.any(np.diff(lam) <= 0):
         raise ValueError("lam must be finite and strictly increasing.")
 
-    # pPXF validates the *entire* input vectors before applying goodpixels.
-    # Supply benign placeholders only where the sample is already excluded.
+    W = None
+    if noise_inv_cholesky is not None:
+        W = np.asarray(noise_inv_cholesky, dtype=float)
+        if W.shape != (galaxy.size, galaxy.size):
+            raise ValueError(
+                f"noise_inv_cholesky must have shape {(galaxy.size, galaxy.size)}"
+            )
+        if not np.all(np.isfinite(W)):
+            raise ValueError("noise_inv_cholesky must contain only finite values")
+        if not np.allclose(W, np.tril(W), rtol=0.0, atol=1e-12):
+            raise ValueError("noise_inv_cholesky must be lower triangular")
+        if np.any(np.diag(W) <= 0):
+            raise ValueError("noise_inv_cholesky must have a positive diagonal")
+
     excluded = np.ones(galaxy.size, dtype=bool)
     excluded[goodpixels] = False
-
     bad_galaxy = excluded & ~np.isfinite(galaxy)
     bad_noise = excluded & (~np.isfinite(noise) | (noise <= 0))
 
     if np.any(bad_galaxy):
         galaxy_fill = float(np.median(galaxy[goodpixels]))
-        if not np.isfinite(galaxy_fill):  # defensive; goodpixels were checked above
+        if not np.isfinite(galaxy_fill):
             galaxy_fill = 0.0
         galaxy[bad_galaxy] = galaxy_fill
 
     if np.any(bad_noise):
         noise_fill = float(np.median(noise[goodpixels]))
-        # This should be guaranteed by the good-pixel validation above, but keep
-        # an explicit guard so an API placeholder can never acquire fit weight.
         if not np.isfinite(noise_fill) or noise_fill <= 0:
             raise ValueError("Could not construct a finite positive pPXF noise placeholder.")
         noise[bad_noise] = noise_fill
 
-    # Fail loudly if some future input violates pPXF's global vector contract in
-    # a way not covered by the deliberately excluded-placeholder case.
     if np.any(~np.isfinite(galaxy)):
         raise ValueError(
             "galaxy contains non-finite samples outside the validated excluded-pixel placeholder case."
@@ -127,7 +126,7 @@ def _validate_spectrum_inputs(
             "noise contains non-finite/non-positive samples outside the validated excluded-pixel placeholder case."
         )
 
-    return galaxy, noise, lam, goodpixels
+    return galaxy, noise, lam, goodpixels, W
 
 
 def total_chi2_diagonal(
@@ -138,9 +137,24 @@ def total_chi2_diagonal(
 ) -> float:
     """Return total chi-square for a diagonal spectral-noise model."""
     gp = np.asarray(goodpixels, dtype=int)
-    resid = (np.asarray(galaxy, dtype=float)[gp] - np.asarray(bestfit, dtype=float)[gp])
+    resid = np.asarray(galaxy, dtype=float)[gp] - np.asarray(bestfit, dtype=float)[gp]
     sig = np.asarray(noise, dtype=float)[gp]
     return float(np.sum((resid / sig) ** 2))
+
+
+def total_chi2(
+    galaxy: np.ndarray,
+    bestfit: np.ndarray,
+    noise: np.ndarray,
+    goodpixels: np.ndarray,
+    *,
+    noise_inv_cholesky: np.ndarray | None = None,
+) -> float:
+    """Return the exact total chi-square for the adopted diagonal/covariance model."""
+    if noise_inv_cholesky is None:
+        return total_chi2_diagonal(galaxy, bestfit, noise, goodpixels)
+    residual = np.asarray(galaxy, dtype=float) - np.asarray(bestfit, dtype=float)
+    return covariance_total_chi2(residual, noise_inv_cholesky, goodpixels)
 
 
 def _extract_solution(pp, n_components: int) -> tuple[np.ndarray, np.ndarray]:
@@ -148,7 +162,6 @@ def _extract_solution(pp, n_components: int) -> tuple[np.ndarray, np.ndarray]:
     if n_components == 1:
         arr = np.asarray(sol, dtype=float)
         return np.asarray([arr[0]], dtype=float), np.asarray([arr[1]], dtype=float)
-
     if len(sol) != n_components:
         raise ValueError(
             f"Expected {n_components} pPXF component solutions but received {len(sol)}."
@@ -156,6 +169,32 @@ def _extract_solution(pp, n_components: int) -> tuple[np.ndarray, np.ndarray]:
     vel = np.asarray([np.asarray(x, dtype=float)[0] for x in sol], dtype=float)
     sig = np.asarray([np.asarray(x, dtype=float)[1] for x in sol], dtype=float)
     return vel, sig
+
+
+def _ppxf_noise_kwargs(noise_inv_cholesky: np.ndarray | None) -> dict[str, Any]:
+    return {} if noise_inv_cholesky is None else {"noise_inv_cholesky": noise_inv_cholesky}
+
+
+def _success_result(pp, n_components: int, galaxy, noise, goodpixels, W, keep_full) -> PPXFStateResult:
+    vel, sig = _extract_solution(pp, n_components)
+    total = total_chi2(
+        galaxy, pp.bestfit, noise, goodpixels, noise_inv_cholesky=W
+    )
+    return PPXFStateResult(
+        success=True,
+        chi2_total=total,
+        reduced_chi2=float(pp.chi2),
+        velocity=vel,
+        sigma=sig,
+        bestfit=np.asarray(pp.bestfit, dtype=float).copy() if keep_full else None,
+        weights=np.asarray(pp.weights, dtype=float).copy() if keep_full else None,
+        polyweights=(
+            None
+            if getattr(pp, "polyweights", None) is None or not keep_full
+            else np.asarray(pp.polyweights, dtype=float).copy()
+        ),
+        pp=pp if keep_full else None,
+    )
 
 
 def fit_single_losvd(
@@ -174,12 +213,13 @@ def fit_single_losvd(
     degree: int = 4,
     mdegree: int = 0,
     regul: float = 0.0,
+    noise_inv_cholesky: np.ndarray | None = None,
     keep_full: bool = True,
 ) -> PPXFStateResult:
     """Run the one-component RH3 control fit on a fixed good-pixel set."""
     ppxf = _import_ppxf()
-    galaxy, noise, lam, goodpixels = _validate_spectrum_inputs(
-        galaxy, noise, lam, goodpixels
+    galaxy, noise, lam, goodpixels, W = _validate_spectrum_inputs(
+        galaxy, noise, lam, goodpixels, noise_inv_cholesky
     )
     templates = np.asarray(templates, dtype=float)
     lam_temp = np.asarray(lam_temp, dtype=float)
@@ -206,24 +246,9 @@ def fit_single_losvd(
             lam_temp=lam_temp,
             clean=False,
             quiet=True,
+            **_ppxf_noise_kwargs(W),
         )
-        vel, sig = _extract_solution(pp, 1)
-        total = total_chi2_diagonal(galaxy, pp.bestfit, noise, goodpixels)
-        return PPXFStateResult(
-            success=True,
-            chi2_total=total,
-            reduced_chi2=float(pp.chi2),
-            velocity=vel,
-            sigma=sig,
-            bestfit=np.asarray(pp.bestfit, dtype=float).copy() if keep_full else None,
-            weights=np.asarray(pp.weights, dtype=float).copy() if keep_full else None,
-            polyweights=(
-                None
-                if getattr(pp, "polyweights", None) is None or not keep_full
-                else np.asarray(pp.polyweights, dtype=float).copy()
-            ),
-            pp=pp if keep_full else None,
-        )
+        return _success_result(pp, 1, galaxy, noise, goodpixels, W, keep_full)
     except Exception as exc:
         return PPXFStateResult(
             success=False,
@@ -231,6 +256,88 @@ def fit_single_losvd(
             reduced_chi2=np.inf,
             velocity=np.asarray([np.nan]),
             sigma=np.asarray([np.nan]),
+            error_message=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def fit_free_two_component_losvd(
+    *,
+    templates_two_component: np.ndarray,
+    component: np.ndarray,
+    galaxy: np.ndarray,
+    noise: np.ndarray,
+    velscale: float,
+    lam: np.ndarray,
+    lam_temp: np.ndarray,
+    goodpixels: np.ndarray,
+    start_velocity_a: float,
+    start_velocity_b: float,
+    start_sigma_a: float,
+    start_sigma_b: float,
+    velocity_bounds_a: tuple[float, float],
+    velocity_bounds_b: tuple[float, float],
+    sigma_bounds: tuple[float, float],
+    degree: int = 4,
+    mdegree: int = 0,
+    regul: float = 0.0,
+    noise_inv_cholesky: np.ndarray | None = None,
+    keep_full: bool = True,
+) -> PPXFStateResult:
+    """Free two-component fit used only to obtain high-quality calibration residuals.
+
+    Both component velocities and dispersions are nonlinear free parameters and
+    the component light ratio is determined by the duplicated template weights.
+    The returned component labels have no physical meaning at this stage; only
+    the quality of the summed model spectrum matters for covariance calibration.
+    """
+    ppxf = _import_ppxf()
+    galaxy, noise, lam, goodpixels, W = _validate_spectrum_inputs(
+        galaxy, noise, lam, goodpixels, noise_inv_cholesky
+    )
+    templates_two_component = np.asarray(templates_two_component, dtype=float)
+    component = np.asarray(component, dtype=int)
+    lam_temp = np.asarray(lam_temp, dtype=float)
+    if templates_two_component.ndim != 2 or templates_two_component.shape[0] != lam_temp.size:
+        raise ValueError("Two-component templates have incompatible dimensions.")
+    if component.size != templates_two_component.shape[1] or set(np.unique(component)) != {0, 1}:
+        raise ValueError("Two-component calibration requires one component label per template and labels {0,1}.")
+
+    sb = (float(sigma_bounds[0]), float(sigma_bounds[1]))
+    bounds = [
+        [[float(velocity_bounds_a[0]), float(velocity_bounds_a[1])], [sb[0], sb[1]]],
+        [[float(velocity_bounds_b[0]), float(velocity_bounds_b[1])], [sb[0], sb[1]]],
+    ]
+    try:
+        pp = ppxf(
+            templates_two_component,
+            galaxy,
+            noise,
+            float(velscale),
+            start=[
+                [float(start_velocity_a), float(start_sigma_a)],
+                [float(start_velocity_b), float(start_sigma_b)],
+            ],
+            moments=[2, 2],
+            component=component,
+            bounds=bounds,
+            goodpixels=goodpixels,
+            degree=int(degree),
+            mdegree=int(mdegree),
+            regul=float(regul),
+            lam=lam,
+            lam_temp=lam_temp,
+            clean=False,
+            quiet=True,
+            **_ppxf_noise_kwargs(W),
+        )
+        return _success_result(pp, 2, galaxy, noise, goodpixels, W, keep_full)
+    except Exception as exc:
+        return PPXFStateResult(
+            success=False,
+            chi2_total=np.inf,
+            reduced_chi2=np.inf,
+            velocity=np.asarray([np.nan, np.nan]),
+            sigma=np.asarray([np.nan, np.nan]),
             error_message=f"{type(exc).__name__}: {exc}",
         )
 
@@ -254,17 +361,13 @@ def fit_fixed_two_component_state(
     degree: int = 4,
     mdegree: int = 0,
     regul: float = 0.0,
+    noise_inv_cholesky: np.ndarray | None = None,
     keep_full: bool = False,
 ) -> PPXFStateResult:
-    """Profile one exact ``(V_A, V_B, f_A)`` state.
-
-    ``V_A`` and ``V_B`` are held fixed with pPXF's ``fixed`` keyword.  Only
-    the two dispersions and linear nuisance quantities are optimized.  The
-    component fraction is imposed with pPXF's ``fraction`` constraint.
-    """
+    """Profile one exact ``(V_A,V_B,f_A)`` state under a frozen noise model."""
     ppxf = _import_ppxf()
-    galaxy, noise, lam, goodpixels = _validate_spectrum_inputs(
-        galaxy, noise, lam, goodpixels
+    galaxy, noise, lam, goodpixels, W = _validate_spectrum_inputs(
+        galaxy, noise, lam, goodpixels, noise_inv_cholesky
     )
     templates_two_component = np.asarray(templates_two_component, dtype=float)
     component = np.asarray(component, dtype=int)
@@ -281,25 +384,12 @@ def fit_fixed_two_component_state(
     if set(np.unique(component)) != {0, 1}:
         raise ValueError("Script-3 two-component fits require component labels {0, 1}.")
 
-    # V_A and V_B are exact likelihood coordinates, not free search parameters.
-    # pPXF still requires finite bounds when bounds are supplied for the free
-    # dispersions, so give each fixed velocity only a tiny bookkeeping interval
-    # around its requested value.  The ``fixed`` keyword is what enforces the
-    # exact coordinate.  Keeping these bounds local also prevents pPXF's
-    # lam/lam_temp template-coverage logic from interpreting a fixed state as a
-    # spurious +/-2000 km/s velocity search.
     velocity_half_width = max(1.0e-3, 1.0e-3 * abs(float(velscale)))
     va = float(velocity_a)
     vb = float(velocity_b)
     bounds = [
-        [
-            [va - velocity_half_width, va + velocity_half_width],
-            [float(sigma_bounds[0]), float(sigma_bounds[1])],
-        ],
-        [
-            [vb - velocity_half_width, vb + velocity_half_width],
-            [float(sigma_bounds[0]), float(sigma_bounds[1])],
-        ],
+        [[va - velocity_half_width, va + velocity_half_width], [float(sigma_bounds[0]), float(sigma_bounds[1])]],
+        [[vb - velocity_half_width, vb + velocity_half_width], [float(sigma_bounds[0]), float(sigma_bounds[1])]],
     ]
 
     try:
@@ -325,24 +415,9 @@ def fit_fixed_two_component_state(
             lam_temp=lam_temp,
             clean=False,
             quiet=True,
+            **_ppxf_noise_kwargs(W),
         )
-        vel, sig = _extract_solution(pp, 2)
-        total = total_chi2_diagonal(galaxy, pp.bestfit, noise, goodpixels)
-        return PPXFStateResult(
-            success=True,
-            chi2_total=total,
-            reduced_chi2=float(pp.chi2),
-            velocity=vel,
-            sigma=sig,
-            bestfit=np.asarray(pp.bestfit, dtype=float).copy() if keep_full else None,
-            weights=np.asarray(pp.weights, dtype=float).copy() if keep_full else None,
-            polyweights=(
-                None
-                if getattr(pp, "polyweights", None) is None or not keep_full
-                else np.asarray(pp.polyweights, dtype=float).copy()
-            ),
-            pp=pp if keep_full else None,
-        )
+        return _success_result(pp, 2, galaxy, noise, goodpixels, W, keep_full)
     except Exception as exc:
         return PPXFStateResult(
             success=False,
