@@ -172,8 +172,10 @@ The logging utilities are designed to write to both the terminal and log files. 
 
 - `METHODS.md` is the detailed scientific and statistical design document.
 - `DIAGNOSTICS.md` is the detailed catalogue of every planned diagnostic figure, what it shows, how it is calculated, how to interpret it, and what action to take if it looks wrong.
+- `LOCAL_SETIP.md` is the detailed instructions for getting the pipeline up and running.
+- `README.md` contains information regarding the current state of the pipeline and what has been implemented, its status, and any other pipeline-step-specific integration information.
 
-Both files should evolve together with the code. A new science diagnostic should not be considered complete until it is documented in `DIAGNOSTICS.md`.
+Both `METHODS.md` and `DIAGNOSTICS.md` evolve together with the code. A new science diagnostic should not be considered complete until it is documented in `DIAGNOSTICS.md`.
 
 ## Development philosophy
 
