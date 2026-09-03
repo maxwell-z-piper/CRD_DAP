@@ -88,7 +88,7 @@ CRD_DAP/
 │   ├── sampling.py
 │   ├── templates.py
 │   └── validation.py
-├── ppxf_patch9_4_8/
+├── ppxf_patch_9_4_8/
 │   ├── README.md
 │   ├── apply_ppxf_9_4_8_cached_whitener_patch.py
 │   └── tests/
