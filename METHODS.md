@@ -721,7 +721,7 @@ $$
 The per-bin empirical noise-amplitude factor is
 
 $$
-s_i = \operatorname{robust\,std}(z_{ij}),
+s_i = \mathrm{robust\,std}(z_{ij}),
 $$
 
 where Script 3 uses the Gaussian-equivalent median absolute deviation (MAD) rather than an ordinary RMS so that a small number of unmodelled pixels cannot set the uncertainty scale for the entire PowerBin. Thus $s_i>1$ means the residual scatter is larger than predicted by the formal errors, while $s_i<1$ means it is smaller. Importantly, $s_i$ is an **overall standard-deviation scale**; it is not a multiplier on the correlation coefficient itself.
@@ -733,12 +733,7 @@ A failed one-component control does not automatically prevent covariance calibra
 After dividing each residual spectrum by both its formal uncertainty and its fitted scale $s_i$, Script 3 measures the correlation between samples separated by $k$ log-wavelength pixels. For PowerBin $i$,
 
 $$
-\rho_i(k)
-=
-\operatorname{Corr}\!\left(
-\frac{r_{ij}}{s_i\sigma_{ij}},
-\frac{r_{i,j+k}}{s_i\sigma_{i,j+k}}
-\right).
+\rho_i(k) = \mathrm{Corr}\left(\frac{r_{ij}}{s_i\sigma_{ij}},\frac{r_{i,j+k}}{s_i\sigma_{i,j+k}}\right).
 $$
 
 Lag zero is fixed by definition,
@@ -772,7 +767,7 @@ where $n$ is stochastic measurement/reduction noise and $\delta$ is deterministi
 For PowerBin $i$, let
 
 $$
-D_i=\operatorname{diag}(\sigma_{i1},\sigma_{i2},\ldots,\sigma_{iN})
+D_i=\mathrm{diag}(\sigma_{i1},\sigma_{i2},\ldots,\sigma_{iN})
 $$
 
 be the diagonal matrix containing the formal one-sigma uncertainties of the fixed Script-3 wavelength experiment, and let $R_i$ be a correlation matrix with unit diagonal. The covariance model is
@@ -851,23 +846,13 @@ repeat until stable
 Between iterations $n$ and $n+1$, Script 3 monitors
 
 $$
-\Delta_s
-=
-\max_i
-\left|
-\frac{s_i^{(n+1)}-s_i^{(n)}}{s_i^{(n)}}
-\right|
+\Delta_s=\max_i\left|\frac{s_i^{(n+1)}-s_i^{(n)}}{s_i^{(n)}}\right|
 $$
 
 and
 
 $$
-\Delta_\rho
-=
-\max_k
-\left|
-\rho^{(n+1)}(k)-\rho^{(n)}(k)
-\right|,
+\Delta_\rho=\max_k\left|\rho^{(n+1)}(k)-\rho^{(n)}(k)\right|,
 $$
 
 with the maximum extended over wavelength blocks and PowerBins where applicable. The locked convergence rule is
@@ -969,11 +954,7 @@ $$
 The local raw comparison
 
 $$
-T_i
-=
-\chi^2_{1C,i}
--
-\min_{V_A,V_B,f_A}\chi^2_{2C,i}
+T_i=\chi^2_{1C,i}-\min_{V_A,V_B,f_A}\chi^2_{2C,i}
 $$
 
 is useful QC but is not converted directly into a textbook p-value. Secure two-component recovery is calibrated later with mocks because mixture-model regularity assumptions are not guaranteed here.
@@ -981,9 +962,7 @@ is useful QC but is not converted directly into a textbook p-value. Secure two-c
 For each candidate state $c$ in one PowerBin, Script 3 saves the covariance-aware total $\chi^2_i(c)$. The local relative surface is
 
 $$
-\Delta\chi_i^2(c)
-=
-\chi_i^2(c)-\min_{c'}\chi_i^2(c'),
+\Delta\chi_i^2(c)=\chi_i^2(c)-\min_{c'}\chi_i^2(c'),
 $$
 
 and the corresponding relative-likelihood weight is
@@ -1121,10 +1100,7 @@ The code should not silently decide based on an undocumented threshold. It shoul
 Baseline:
 
 $$
-\Theta=
-\{x_0,y_0,PA,i,V_{\mathrm{sys}},
-V_{A,1}\ldots V_{A,K},
-V_{B,1}\ldots V_{B,K}\}.
+\Theta=\{x_0,y_0,PA,i,V_{\mathrm{sys}},V_{A,1}\ldots V_{A,K},V_{B,1}\ldots V_{B,K}\}.
 $$
 
 Both disks share center, PA, inclination, and systemic velocity initially. They have independent non-parametric ring velocities.
@@ -1244,9 +1220,7 @@ The global disk model predicts continuous velocities that generally do not land 
 For every bin, rerun pPXF at
 
 $$
-V_{A,i}^{\mathrm{global}},
-\qquad
-V_{B,i}^{\mathrm{global}}
+V_{A,i}^{\mathrm{global}}, \qquad V_{B,i}^{\mathrm{global}}
 $$
 
 rather than reporting only interpolated nuisance parameters from the coarse grid.
@@ -1454,9 +1428,7 @@ A repeated cell may require only one expensive BL pPXF calculation; its multipli
 For a sampled RH3 state, BL supplies
 
 $$
-L_{\mathrm{BL}}(c,f_A)
-\propto
-\exp\left[-\frac{\Delta\chi^2_{\mathrm{BL}}}{2}\right].
+L_{\mathrm{BL}}(c,f_A) \propto \exp\left[-\frac{\Delta\chi^2_{\mathrm{BL}}}{2}\right].
 $$
 
 Because the proposal draws already follow the RH3 distribution, the BL likelihood reweights the sampled ensemble toward the joint RH3+BL target.
@@ -1551,17 +1523,7 @@ This preserves correlations between the two disk population measurements better 
 The gold-standard realization is end-to-end:
 
 $$
-\mathrm{perturb\ RH3}
-\rightarrow
-\mathrm{RH3\ likelihood}
-\rightarrow
-\mathrm{global\ disk\ model}
-\rightarrow
-\mathrm{exact\ RH3\ extraction}
-\rightarrow
-\mathrm{perturb\ BL}
-\rightarrow
-\mathrm{population\ fit}.
+\mathrm{perturb\ RH3} \rightarrow \mathrm{RH3\ likelihood} \rightarrow \mathrm{global\ disk\ model} \rightarrow \mathrm{exact\ RH3\ extraction} \rightarrow \mathrm{perturb\ BL} \rightarrow \mathrm{population\ fit}.
 $$
 
 This captures the fact that BL populations are conditional on uncertain RH3 kinematics.
