@@ -40,4 +40,4 @@ def test_script02_driver_helper_keywords_match():
 def test_script02_driver_exists():
     repo_root = Path(__file__).resolve().parents[1]
     assert (repo_root / "scripts" / "02_make_master_BL_bins.py").is_file()
-    assert (repo_root / "scripts" / "inspect_script02_sn.py").is_file()
+    assert (repo_root / "tests" / "02_forensics" / "inspect_script02_sn.py").is_file()

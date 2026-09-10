@@ -64,3 +64,124 @@ def test_lag_correlation_recovers_short_range_signal():
     assert count[0, 1] > 4000
     assert 0.35 < rho[0, 1] < 0.55
     assert abs(rho[0, 5]) < abs(rho[0, 1])
+
+def test_regularized_covariance_still_decouples_masked_pixels():
+    """
+    Regression test for the real Script-3 failure.
+
+    Use a deliberately strong, oscillatory lag-correlation curve that does not
+    define a positive-definite covariance matrix.  This forces the
+    eigenvalue-regularization branch.
+
+    The regularized fitted-pixel covariance must remain completely independent
+    of excluded wavelength pixels.
+    """
+
+    n_pixel = 64
+
+    sigma = np.ones(
+        n_pixel,
+        dtype=float,
+    )
+
+    good = np.ones(
+        n_pixel,
+        dtype=bool,
+    )
+
+    # Mimic internal wavelength-mask gaps.
+    good[
+        [7, 19, 20, 35]
+    ] = False
+
+    # Deliberately strong positive short-lag correlation followed by an
+    # anticorrelated tail.  This is qualitatively similar to the structure
+    # encountered in the real RH3 residuals and forces positive-definite repair.
+    rho = np.array(
+        [[
+            1.00,
+            0.95,
+            0.84,
+            0.70,
+            0.57,
+            0.44,
+            0.32,
+            0.19,
+            0.08,
+            0.00,
+           -0.04,
+           -0.08,
+           -0.12,
+           -0.14,
+           -0.17,
+           -0.22,
+           -0.27,
+           -0.35,
+           -0.43,
+           -0.47,
+           -0.52,
+        ]],
+        dtype=float,
+    )
+
+    result = covariance.build_inverse_cholesky(
+        sigma,
+        good,
+        scale=1.0,
+        rho_by_block=rho,
+        eigen_floor=1.0e-8,
+    )
+
+    W = result.inv_cholesky
+
+    fitted_idx = np.flatnonzero(good)
+    excluded_idx = np.flatnonzero(~good)
+
+    # The deliberately pathological input should have required repair.
+    assert result.regularized
+
+    # Fitted whitened residuals must not depend on excluded pixels.
+    coupling = W[
+        np.ix_(
+            fitted_idx,
+            excluded_idx,
+        )
+    ]
+
+    assert np.max(
+        np.abs(coupling)
+    ) < 1.0e-10
+
+    # Stronger physical test:
+    #
+    # changing masked residuals by an absurd amount must leave fitted chi^2
+    # completely unchanged.
+    rng = np.random.default_rng(123)
+
+    residual_1 = rng.normal(
+        size=n_pixel,
+    )
+
+    residual_2 = residual_1.copy()
+
+    residual_1[excluded_idx] = 0.0
+    residual_2[excluded_idx] = 1.0e6
+
+    chi2_1 = covariance.covariance_total_chi2(
+        residual_1,
+        W,
+        fitted_idx,
+    )
+
+    chi2_2 = covariance.covariance_total_chi2(
+        residual_2,
+        W,
+        fitted_idx,
+    )
+
+    np.testing.assert_allclose(
+        chi2_1,
+        chi2_2,
+        rtol=1.0e-12,
+        atol=1.0e-12,
+    )

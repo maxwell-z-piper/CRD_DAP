@@ -2,21 +2,10 @@
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-import sys
-
 import numpy as np
 import pytest
 
-
-MODULE_PATH = Path(__file__).resolve().parents[1] / "crd_utils" / "ppxf_utils.py"
-spec = importlib.util.spec_from_file_location("crd_dap_patch_ppxf_utils", MODULE_PATH)
-ppxf_utils = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules[spec.name] = ppxf_utils
-spec.loader.exec_module(ppxf_utils)
-
+from crd_utils import ppxf_utils
 
 def _base_vectors():
     galaxy = np.array([1.0, np.nan, 3.0, 4.0, 5.0, np.inf, 7.0, 8.0])
@@ -31,7 +20,7 @@ def test_excluded_invalid_samples_are_sanitized_without_mutating_inputs():
     galaxy_original = galaxy.copy()
     noise_original = noise.copy()
 
-    g2, n2, l2, gp2 = ppxf_utils._validate_spectrum_inputs(
+    g2, n2, l2, gp2, W = ppxf_utils._validate_spectrum_inputs(
         galaxy, noise, lam, goodpixels
     )
 
