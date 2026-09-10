@@ -386,64 +386,212 @@ def build_inverse_cholesky(
     block_index: np.ndarray | None = None,
     eigen_floor: float = 1.0e-8,
 ) -> WhiteningResult:
-    """Build ``W=L^-1`` for ``C=s^2 D R D`` on the full pPXF vector.
-
-    The science covariance is defined on fitted pixels.  Excluded pixels are
-    given a benign diagonal variance and are decorrelated from fitted pixels so
-    pPXF's full-vector covariance API cannot reintroduce masked samples through
-    whitening.
     """
+    Build the inverse-Cholesky whitening matrix used by pPXF.
+
+    Scientific covariance is defined only for fitted wavelength pixels.
+
+    The original spectrum may contain many wavelength samples that are masked
+    and never used by pPXF.  Those excluded pixels must not participate in the
+    positive-definite repair or Cholesky factorization, because doing so can
+    introduce tiny numerical couplings between fitted and masked dimensions.
+
+    We therefore:
+
+    1. Identify the fitted pixels on the original log-wavelength grid.
+    2. Construct the empirical correlation model using the original pixel
+       coordinates, so spectral lag still has its correct physical meaning.
+    3. Extract only the fitted-pixel correlation submatrix.
+    4. Build and factorize the covariance matrix only in that fitted subspace.
+    5. Embed the fitted inverse-Cholesky matrix back into a full-size matrix
+       for the pPXF interface.
+    6. Keep excluded pixels completely independent of fitted pixels.
+    """
+
+    # -------------------------------------------------------------------------
+    # STEP 1: Validate the formal uncertainties and fitted-pixel mask
+    # -------------------------------------------------------------------------
+
     sigma = np.asarray(noise, dtype=float).copy()
-    g = np.asarray(good, dtype=bool)
-    if sigma.ndim != 1 or g.shape != sigma.shape:
-        raise ValueError("noise and good must be one-dimensional arrays with identical shape")
-    gp = np.flatnonzero(g & np.isfinite(sigma) & (sigma > 0))
-    if gp.size < 5:
-        raise ValueError("Too few finite positive good-pixel uncertainties for covariance construction")
-    fill = float(np.median(sigma[gp]))
-    bad = ~np.isfinite(sigma) | (sigma <= 0)
-    sigma[bad] = fill
-    scale = float(scale)
-    if not np.isfinite(scale) or scale <= 0:
-        raise ValueError("scale must be finite and positive")
+    fitted = np.asarray(good, dtype=bool)
 
-    R = correlation_matrix_from_lags(
-        sigma.size, g, rho_by_block, block_index=block_index
-    )
-    sd = scale * sigma
-    C = np.outer(sd, sd) * R
-    # Fast path: empirical lag matrices are often already positive definite.
-    # Avoid an O(N^3) eigendecomposition unless Cholesky actually fails.
-    min_before = np.nan
-    changed = False
-    try:
-        L = linalg.cholesky(C, lower=True, check_finite=True)
-    except linalg.LinAlgError:
-        R_pd, min_before, changed = _nearest_positive_definite_correlation(
-            R, eigen_floor=float(eigen_floor)
+    if sigma.ndim != 1:
+        raise ValueError("noise must be a one-dimensional array")
+
+    if fitted.shape != sigma.shape:
+        raise ValueError(
+            "noise and good must be one-dimensional arrays with identical shape"
         )
-        C = np.outer(sd, sd) * R_pd
-        L = linalg.cholesky(C, lower=True, check_finite=True)
-    W = linalg.solve_triangular(
-        L, np.eye(C.shape[0], dtype=float), lower=True, check_finite=True
+
+    # We need enough valid fitted-pixel uncertainties to define a sensible
+    # replacement value for any invalid uncertainty samples.
+    valid_fitted_sigma = (
+        fitted
+        & np.isfinite(sigma)
+        & (sigma > 0)
     )
 
-    # Fitted rows must not depend on excluded residuals.  This is a critical API
-    # invariant when pPXF uses a full inverse-Cholesky matrix plus goodpixels.
-    excluded = ~g
-    if np.any(excluded) and np.any(g):
-        coupling = W[np.ix_(g, excluded)]
-        if coupling.size and float(np.max(np.abs(coupling))) > 1.0e-10:
+    if np.sum(valid_fitted_sigma) < 5:
+        raise ValueError(
+            "Too few finite positive good-pixel uncertainties "
+            "for covariance construction"
+        )
+
+    # If an uncertainty is invalid, replace it with the median uncertainty
+    # measured from valid fitted pixels.
+    sigma_fill = float(np.median(sigma[valid_fitted_sigma]))
+
+    invalid_sigma = (~np.isfinite(sigma) | (sigma <= 0))
+
+    sigma[invalid_sigma] = sigma_fill
+
+    scale = float(scale)
+
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError(
+            "scale must be finite and positive"
+        )
+
+    # Indices on the ORIGINAL log-wavelength grid.
+    fitted_idx = np.flatnonzero(fitted)
+    excluded_idx = np.flatnonzero(~fitted)
+
+    if fitted_idx.size < 5:
+        raise ValueError(
+            "Too few fitted wavelength pixels for covariance construction"
+        )
+
+    # -------------------------------------------------------------------------
+    # STEP 2: Build the correlation matrix using ORIGINAL spectral lags
+    # -------------------------------------------------------------------------
+    #
+    # correlation_matrix_from_lags() knows the original wavelength-pixel
+    # positions.  This is important:
+    #
+    #     original pixels 100 and 105
+    #
+    # must remain separated by lag 5 even if pixels 101-104 are masked.
+    #
+    # The current helper returns a full-size matrix.  We immediately extract
+    # the fitted-fitted block below.
+
+    R_full = correlation_matrix_from_lags(
+        sigma.size,
+        fitted,
+        rho_by_block,
+        block_index=block_index,
+    )
+
+    # -------------------------------------------------------------------------
+    # STEP 3: Restrict the science correlation matrix to FITTED pixels only
+    # -------------------------------------------------------------------------
+
+    R_fit = R_full[np.ix_(fitted_idx, fitted_idx)]
+
+    sigma_fit = sigma[fitted_idx]
+
+    # Empirically rescaled standard deviation for every fitted pixel:
+    #
+    #     s_i * sigma_ij
+    #
+    scaled_sigma_fit = (scale * sigma_fit)
+
+    # -------------------------------------------------------------------------
+    # STEP 4: Construct the FITTED-PIXEL covariance matrix
+    # -------------------------------------------------------------------------
+    #
+    # C_fit = s_i^2 D_fit R_fit D_fit
+    #
+    # Numerically, multiplying by the outer product of the scaled standard
+    # deviations performs the D R D operation.
+
+    C_fit = (np.outer(scaled_sigma_fit,scaled_sigma_fit,)* R_fit)
+
+    # -------------------------------------------------------------------------
+    # STEP 5: Attempt Cholesky factorization
+    # -------------------------------------------------------------------------
+
+    min_before = np.nan
+    regularized = False
+
+    try:
+        L_fit = linalg.cholesky(
+            C_fit,
+            lower=True,
+            check_finite=True,)
+
+    except linalg.LinAlgError:
+
+        # The empirical lag sequence does not necessarily define a
+        # positive-definite correlation matrix.
+        #
+        # Repair ONLY the fitted-pixel correlation matrix.
+        R_fit_pd, min_before, regularized = (_nearest_positive_definite_correlation(R_fit,
+                                                                                    eigen_floor=float(eigen_floor),))
+
+        C_fit = (np.outer(scaled_sigma_fit,scaled_sigma_fit,)* R_fit_pd)
+
+        L_fit = linalg.cholesky(
+            C_fit,
+            lower=True,
+            check_finite=True,
+        )
+
+    # -------------------------------------------------------------------------
+    # STEP 6: Calculate W_fit = L_fit^{-1}
+    # -------------------------------------------------------------------------
+
+    W_fit = linalg.solve_triangular(
+        L_fit,
+        np.eye(fitted_idx.size,dtype=float,),
+        lower=True,
+        check_finite=True,
+    )
+
+    # -------------------------------------------------------------------------
+    # STEP 7: Embed fitted-pixel whitening back into the full pPXF vector
+    # -------------------------------------------------------------------------
+    #
+    # pPXF currently receives a matrix with the same dimensions as the full
+    # spectrum.  The science covariance occupies only the fitted-fitted block.
+    #
+    # Excluded pixels get independent diagonal whitening terms.  Their rows are
+    # ignored by goodpixels, but keeping a well-defined diagonal makes the full
+    # operator benign and nonsingular.
+
+    W_full = np.zeros((sigma.size, sigma.size),dtype=float,)
+
+    W_full[np.ix_(fitted_idx, fitted_idx)] = W_fit
+
+    if excluded_idx.size > 0:
+        W_full[excluded_idx,excluded_idx,] = (1.0/ (scale* sigma[excluded_idx]))
+
+    # -------------------------------------------------------------------------
+    # STEP 8: Explicitly verify that masked pixels cannot affect fitted rows
+    # -------------------------------------------------------------------------
+
+    if excluded_idx.size > 0:
+
+        fitted_to_excluded_coupling = W_full[np.ix_(fitted_idx,excluded_idx,)]
+
+        maximum_coupling = float(np.max(np.abs(fitted_to_excluded_coupling)))
+
+        if maximum_coupling > 1.0e-10:
             raise RuntimeError(
-                "Covariance construction coupled fitted whitened residuals to excluded pixels; "
-                "masked dimensions must remain statistically decoupled."
+                "Covariance construction coupled fitted whitened residuals "
+                "to excluded pixels; masked dimensions must remain "
+                "statistically decoupled."
             )
 
+    # -------------------------------------------------------------------------
+    # STEP 9: Return the full-size whitening matrix and QC information
+    # -------------------------------------------------------------------------
+
     return WhiteningResult(
-        inv_cholesky=np.asarray(W, dtype=float),
+        inv_cholesky=np.asarray(W_full,dtype=float,),
         min_eigenvalue_before_regularization=min_before,
         eigenvalue_floor_applied=float(eigen_floor),
-        regularized=changed,
+        regularized=regularized,
     )
 
 
