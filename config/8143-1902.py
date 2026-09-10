@@ -103,8 +103,8 @@ SCIENCE_VELOCITY_FRAME = "auto"
 # =============================================================================
 
 # Stellar kinematic PA from fit_kinematic_pa or equivalent, in degrees.
-PA_KIN_INITIAL_DEG = None
-PA_KIN_ERR_DEG = None
+PA_KIN_INITIAL_DEG = 58.0
+PA_KIN_ERR_DEG = 7.5
 
 # Systemic velocity initializer in km/s. This may come from the preliminary RH3
 # single-component fit / fit_kinematic_pa correction. It is NOT treated as an
@@ -468,7 +468,7 @@ RH3_COVARIANCE_REQUIRED_PPXF_VERSION = "9.4.8"
 # Lags whose simultaneous 95% PowerBin-bootstrap band contains zero are treated
 # as statistically consistent with zero rather than retained because of a
 # single-lag fluctuation.
-RH3_COVARIANCE_MAX_LAG = 20
+RH3_COVARIANCE_MAX_LAG = 40
 RH3_COVARIANCE_MIN_PAIRS = 25
 RH3_COVARIANCE_BOOTSTRAP_N = 2000
 RH3_COVARIANCE_BOOTSTRAP_CONFIDENCE = 0.95
