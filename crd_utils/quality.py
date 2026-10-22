@@ -83,7 +83,7 @@ FLAG_DEFINITIONS = {
     ),
     "SPATIAL_COVARIANCE_UNCALIBRATED": QualityFlagDefinition(
         "SPATIAL_COVARIANCE_UNCALIBRATED",
-        "PowerBin capacities and formal coadded uncertainties currently use diagonal spatial variance because no validated KcwiKit spatial covariance law has been supplied.",
+        "PowerBin capacities use formal diagonal spatial variance. The final per-bin uncertainties use empirical stack-noise scaling when both validated noise ensembles are supplied.",
     ),
     "SN_WINDOW_COVERAGE_WARNING": QualityFlagDefinition(
         "SN_WINDOW_COVERAGE_WARNING",
@@ -103,7 +103,7 @@ FLAG_DEFINITIONS = {
     ),
     "RH3_LIKELIHOOD_WIDTH_UNCALIBRATED": QualityFlagDefinition(
         "RH3_LIKELIHOOD_WIDTH_UNCALIBRATED",
-        "Script 3 used formal diagonal binned-spectrum uncertainties. The location/topology of the profile-likelihood cube may be inspected, but exp(-Delta chi2/2) widths are not publication-final until residual variance scaling and spectral covariance are calibrated.",
+        "Script 3 uses spatially calibrated binned uncertainties and a residual scalar, but spectral sample correlations and likelihood coverage have not been validated. The profile-likelihood widths are not publication-final.",
     ),
     "RH3_ONE_COMPONENT_FAILURES": QualityFlagDefinition(
         "RH3_ONE_COMPONENT_FAILURES",

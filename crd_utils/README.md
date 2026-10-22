@@ -8,7 +8,9 @@ Current module responsibilities:
 - `logging_utils.py` — timestamped run directories, terminal + master log + step logs.
 - `io.py` — FITS/table/metadata I/O abstraction.
 - `cube_utils.py` — collapsed continuum, masks, cube registration helpers.
-- `noise.py` — variance scaling, spectral covariance, correlated noise realizations.
+- `noise.py` — preliminary Script-1 noise and spectral-correlation diagnostics.
+- `spatial_noise.py` — empirical per-bin scaling from fixed-stack Gaussian noise ensembles.
+- `scalar_noise.py` — per-bin residual scaling for Script-3 diagonal pPXF fits.
 - `psf_lsf.py` — empirical master-arc LSF and delivered PSF characterization.
 - `binning.py` — BL-defined PowerBin membership and transfer to RH3.
 - `templates.py` — XSL SSP wavelength/LSF/normalization preparation.
