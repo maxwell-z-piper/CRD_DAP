@@ -1,23 +1,19 @@
 #!/usr/bin/env python3
 """CRD_DAP Script 3: build independent RH3 profile-likelihood cubes.
 
-Before evaluating the full grid, this stage calibrates the spectral noise
-covariance on the exact RH3 log-wavelength experiment using high-quality,
-multi-start two-component pPXF residuals.  Four increasingly flexible covariance
-models (M1--M4) are iterated to convergence, tested with simultaneous PowerBin-
-bootstrap whitening diagnostics, and compared through complete production grids
-for a deterministic set of 12--14 representative PowerBins.  The least-complex
-residual-adequate and scientifically stable covariance model is then frozen.
+Script 2 has already calibrated spatial coaddition with Gaussian mock stacks.
+For each RH3 PowerBin this stage evaluates the full grid once with that
+spatially calibrated error spectrum, measures residual scatter from its exact
+best grid state, and rescales the bin's noise and chi-square surface once.
+Residual multipliers may be above or below one.
 
 For every BL-defined master PowerBin the production stage evaluates the complete
-explicit ``(V_A, V_B, f_A,RH3)`` grid with that frozen covariance.  The three
+explicit ``(V_A, V_B, f_A,RH3)`` grid with diagonal noise. The three
 grid coordinates are held fixed at exact values.  pPXF profiles over
 ``sigma_A``, ``sigma_B``, the full duplicated XSL SSP basis, and additive-
-continuum nuisance terms.  The validated pPXF-9.4.8 cached-whitener interface
-factorizes each PowerBin covariance once and reuses the same inverse-Cholesky
-operator for all states in that bin.
+continuum nuisance terms.
 
-The fundamental saved quantity is TOTAL covariance-aware chi-square, not pPXF's
+The fundamental saved quantity is TOTAL diagonal chi-square, not pPXF's
 reduced chi2.  The resulting surface is a profile likelihood; normalized
 exp(-Delta chi2/2) values used downstream are relative-likelihood weights, not
 Bayesian posterior probabilities.
@@ -94,11 +90,10 @@ from astropy.io import fits
 from astropy.table import Table
 
 import crd_utils as crd
-from crd_utils import covariance_calibration, io, plotting, ppxf_grid, ppxf_utils, templates
-import crd_utils.covariance_plotting as covariance_plotting
+from crd_utils import io, plotting, ppxf_grid, ppxf_utils, scalar_noise, templates
 
 
-CHECKPOINT_SCHEMA_VERSION = 3
+CHECKPOINT_SCHEMA_VERSION = 5
 # Extra log-grid pixels used only as template-support edge safety.
 TEMPLATE_EDGE_SAFETY_PIXELS = 4
 # Seconds between terminal-only heartbeat refreshes while waiting for a bin.
@@ -740,12 +735,7 @@ def _worker_init(constants: dict) -> None:
 
 
 def _fit_one_bin_worker(payload):
-    """Fit one PowerBin with the frozen, selected covariance model.
-
-    The dense inverse-Cholesky operator is constructed exactly once at worker
-    entry for this PowerBin and then reused by the one-component control, all
-    2601 fixed likelihood states, and the exact refit of the local minimum.
-    """
+    """Fit the full grid once, then scale its chi-square from its best fit."""
     bid, galaxy, noise, good, valid_fraction = payload
     c = _WORKER
     min_good = int(c["min_good_pixels"])
@@ -758,19 +748,10 @@ def _fit_one_bin_worker(payload):
     if not np.isfinite(scale):
         raise RuntimeError(f"Bin {bid} could not be normalized for pPXF.")
 
-    cov_model = c["covariance_model"]
-    effective_noise, inv_chol, whitening = covariance_calibration.effective_noise_and_whitener(
-        cov_model,
-        bin_id=int(bid),
-        noise=noise_n,
-        good=np.asarray(good, dtype=bool),
-        eigen_floor=float(c["covariance_eigen_floor"]),
-    )
-
     single = ppxf_utils.fit_single_losvd(
         templates=c["templates_single"],
         galaxy=galaxy_n,
-        noise=effective_noise,
+        noise=noise_n,
         velscale=c["velscale"],
         lam=c["lam"],
         lam_temp=c["lam_temp"],
@@ -782,7 +763,6 @@ def _fit_one_bin_worker(payload):
         degree=int(c["degree"]),
         mdegree=int(c["mdegree"]),
         regul=float(c["regul"]),
-        noise_inv_cholesky=inv_chol,
         keep_full=True,
     )
 
@@ -799,7 +779,7 @@ def _fit_one_bin_worker(payload):
         templates_two_component=c["templates_two"],
         component=c["component"],
         galaxy=galaxy_n,
-        noise=effective_noise,
+        noise=noise_n,
         velscale=c["velscale"],
         lam=c["lam"],
         lam_temp=c["lam_temp"],
@@ -813,7 +793,6 @@ def _fit_one_bin_worker(payload):
         degree=int(c["degree"]),
         mdegree=int(c["mdegree"]),
         regul=float(c["regul"]),
-        noise_inv_cholesky=inv_chol,
         sigma_boundary_tolerance_kms=float(c["sigma_boundary_tolerance"]),
     )
     if cube.best_index is None:
@@ -851,7 +830,7 @@ def _fit_one_bin_worker(payload):
         templates_two_component=c["templates_two"],
         component=c["component"],
         galaxy=galaxy_n,
-        noise=effective_noise,
+        noise=noise_n,
         velscale=c["velscale"],
         lam=c["lam"],
         lam_temp=c["lam_temp"],
@@ -865,11 +844,26 @@ def _fit_one_bin_worker(payload):
         degree=int(c["degree"]),
         mdegree=int(c["mdegree"]),
         regul=float(c["regul"]),
-        noise_inv_cholesky=inv_chol,
         keep_full=True,
     )
     if not best.success:
         raise RuntimeError(f"Bin {bid}: exact refit of local best state failed: {best.error_message}")
+
+    residual_scale, residual_center, normalized_residual = scalar_noise.from_best_grid_state(
+        galaxy_n, best.bestfit, noise_n, gp,
+    )
+    effective_noise = noise_n * residual_scale
+    # Every state used the same pixels and the same unregularized objective.
+    # Multiplying all errors in this bin by q changes every chi-square by 1/q²,
+    # so the exact best grid coordinate and profiled nuisance fits are retained.
+    calibrated_chi2 = scalar_noise.rescale_chi2(cube.chi2_total, residual_scale)
+    calibrated_reduced = scalar_noise.rescale_chi2(cube.reduced_chi2, residual_scale)
+    calibrated_best_chi2 = float(scalar_noise.rescale_chi2(best.chi2_total, residual_scale))
+    direct_best_chi2 = ppxf_utils.total_chi2_diagonal(
+        galaxy_n, best.bestfit, effective_noise, gp,
+    )
+    if not np.isclose(calibrated_best_chi2, direct_best_chi2, rtol=1e-10, atol=1e-10):
+        raise RuntimeError(f"Bin {bid}: residual scaling did not preserve the best-state chi-square")
 
     n_basis = int(c["n_basis"])
     w = np.asarray(best.weights, dtype=float)
@@ -880,23 +874,19 @@ def _fit_one_bin_worker(payload):
     return {
         "bin_id": int(bid),
         "schema_version": CHECKPOINT_SCHEMA_VERSION,
-        "covariance_model": np.asarray(str(cov_model.name)),
-        "covariance_hash": np.asarray(str(c["covariance_hash"])),
-        "covariance_scale": np.asarray(float(cov_model.scale[int(bid)])),
-        "covariance_regularized": np.asarray(bool(whitening.regularized) if whitening is not None else False),
+        "noise_model_hash": np.asarray(str(c["noise_model_hash"])),
+        "residual_noise_scale": np.asarray(residual_scale),
+        "residual_center": np.asarray(residual_center),
+        "normalized_residual": normalized_residual,
         "normalization_scale": float(scale),
         "n_good_pixels": int(gp.size),
         "valid_fraction": np.asarray(valid_fraction, dtype=np.float32),
         "galaxy": np.asarray(galaxy_n, dtype=np.float32),
-        # Preserve the normalized *formal* Script-2 uncertainty as the canonical
-        # science noise vector.  For M1 only, pPXF receives s_i*noise; keeping the
-        # formal vector here prevents downstream Script 5 from accidentally
-        # applying s_i twice when it reconstructs the frozen covariance model.
-        "noise": np.asarray(noise_n, dtype=np.float32),
-        "ppxf_noise": np.asarray(effective_noise, dtype=np.float32),
+        "noise": np.asarray(effective_noise, dtype=np.float32),
+        "noise_before_residual_scale": np.asarray(noise_n, dtype=np.float32),
         "good": np.asarray(good, dtype=np.uint8),
-        "chi2_total": cube.chi2_total,
-        "reduced_chi2": cube.reduced_chi2,
+        "chi2_total": calibrated_chi2,
+        "reduced_chi2": calibrated_reduced,
         "sigma_a": cube.sigma_a,
         "sigma_b": cube.sigma_b,
         "fit_status": cube.fit_status,
@@ -906,8 +896,8 @@ def _fit_one_bin_worker(payload):
         "n_fixed_velocity_mismatch": int(cube.n_fixed_velocity_mismatch),
         "n_sigma_boundary": int(cube.n_sigma_boundary),
         "one_success": bool(single.success),
-        "one_chi2_total": float(single.chi2_total),
-        "one_reduced_chi2": float(single.reduced_chi2),
+        "one_chi2_total": float(scalar_noise.rescale_chi2(single.chi2_total, residual_scale)),
+        "one_reduced_chi2": float(scalar_noise.rescale_chi2(single.reduced_chi2, residual_scale)),
         "one_velocity": float(single.velocity[0]) if single.success else np.nan,
         "one_sigma": float(single.sigma[0]) if single.success else np.nan,
         "one_bestfit": (
@@ -925,8 +915,8 @@ def _fit_one_bin_worker(payload):
         "best_fa_achieved": float(achieved_fa),
         "best_sigma_a": float(best.sigma[0]),
         "best_sigma_b": float(best.sigma[1]),
-        "best_chi2_total": float(best.chi2_total),
-        "best_reduced_chi2": float(best.reduced_chi2),
+        "best_chi2_total": calibrated_best_chi2,
+        "best_reduced_chi2": float(scalar_noise.rescale_chi2(best.reduced_chi2, residual_scale)),
         "best_bestfit": np.asarray(best.bestfit, dtype=np.float32),
         "best_weights": np.asarray(best.weights, dtype=np.float32),
         "best_polyweights": (
@@ -950,7 +940,7 @@ def _write_checkpoint(path: Path, result: dict) -> None:
 def _checkpoint_is_valid(
     path: Path,
     expected_shape: tuple[int, int, int],
-    covariance_hash: str | None = None,
+    noise_model_hash: str | None = None,
 ) -> bool:
     if not path.is_file():
         return False
@@ -959,9 +949,9 @@ def _checkpoint_is_valid(
             version = int(np.asarray(data["schema_version"]).reshape(-1)[0])
             if version != CHECKPOINT_SCHEMA_VERSION or tuple(data["chi2_total"].shape) != expected_shape:
                 return False
-            if covariance_hash is not None:
-                saved = str(np.asarray(data["covariance_hash"]).reshape(-1)[0])
-                if saved != str(covariance_hash):
+            if noise_model_hash is not None:
+                saved = str(np.asarray(data["noise_model_hash"]).reshape(-1)[0])
+                if saved != str(noise_model_hash):
                     return False
             return True
     except Exception:
@@ -1007,8 +997,7 @@ def _consolidate(
     bin_map: np.ndarray,
     cfg,
     logger,
-    covariance_model_name: str,
-    covariance_hash: str,
+    noise_model_hash: str,
 ):
     va, vb, fa = grids
     shape = (nbin, va.size, vb.size, fa.size)
@@ -1022,7 +1011,7 @@ def _consolidate(
     nlog = lam.size
     galaxy = np.full((nbin, nlog), np.nan, dtype=np.float32)
     noise = np.full((nbin, nlog), np.nan, dtype=np.float32)
-    ppxf_noise = np.full((nbin, nlog), np.nan, dtype=np.float32)
+    noise_before_residual_scale = np.full((nbin, nlog), np.nan, dtype=np.float32)
     good = np.zeros((nbin, nlog), dtype=np.uint8)
     valid_fraction = np.zeros((nbin, nlog), dtype=np.float32)
     one_model = np.full((nbin, nlog), np.nan, dtype=np.float32)
@@ -1049,8 +1038,9 @@ def _consolidate(
     two_weights = []
     polyweights = []
     scales = np.full(nbin, np.nan)
-    covariance_scale = np.full(nbin, np.nan)
-    covariance_regularized = np.zeros(nbin, dtype=bool)
+    residual_noise_scale = np.full(nbin, np.nan)
+    residual_center = np.full(nbin, np.nan)
+    normalized_residual = np.full((nbin, nlog), np.nan, dtype=np.float32)
 
     for bid in range(nbin):
         data = _read_checkpoint(_checkpoint_path(checkpoints, bid))
@@ -1062,7 +1052,7 @@ def _consolidate(
         boundary[bid] = data["sigma_boundary"]
         galaxy[bid] = data["galaxy"]
         noise[bid] = data["noise"]
-        ppxf_noise[bid] = data["ppxf_noise"] if "ppxf_noise" in data else data["noise"]
+        noise_before_residual_scale[bid] = data["noise_before_residual_scale"]
         good[bid] = data["good"]
         valid_fraction[bid] = data["valid_fraction"]
         one_model[bid] = data["one_bestfit"]
@@ -1084,12 +1074,20 @@ def _consolidate(
         n_fail[bid] = int(data["n_failures"])
         n_bound[bid] = int(data["n_sigma_boundary"])
         scales[bid] = float(data["normalization_scale"])
-        covariance_scale[bid] = float(data["covariance_scale"])
-        covariance_regularized[bid] = bool(np.asarray(data["covariance_regularized"]).reshape(-1)[0])
+        residual_noise_scale[bid] = float(data["residual_noise_scale"])
+        residual_center[bid] = float(data["residual_center"])
+        normalized_residual[bid] = data["normalized_residual"]
         one_weights.append(np.asarray(data["one_weights"], dtype=np.float32))
         two_weights.append(np.asarray(data["best_weights"], dtype=np.float32))
         polyweights.append(np.asarray(data["best_polyweights"], dtype=np.float32))
 
+    calibration_product = scalar_noise.write_calibration(
+        run,
+        scales=residual_noise_scale,
+        centers=residual_center,
+        residuals=normalized_residual,
+        input_hash=noise_model_hash,
+    )
     cube_path = run.products_dir / "RH3_likelihood_cubes.npz"
     np.savez_compressed(
         cube_path,
@@ -1117,10 +1115,8 @@ def _consolidate(
         n_good_pixels=n_good,
         n_failed_states=n_fail,
         n_sigma_boundary_states=n_bound,
-        covariance_scale=covariance_scale,
-        covariance_regularized=covariance_regularized.astype(np.uint8),
-        covariance_model_name=np.asarray(str(covariance_model_name)),
-        covariance_model_hash=np.asarray(str(covariance_hash)),
+        residual_noise_scale=residual_noise_scale,
+        noise_model_hash=np.asarray(str(noise_model_hash)),
     )
 
     selected_path = run.products_dir / "RH3_log_spectra_and_local_best_fits.npz"
@@ -1128,17 +1124,16 @@ def _consolidate(
         selected_path,
         wavelength=np.asarray(lam, dtype=np.float64),
         galaxy=galaxy,
-        # ``noise`` remains the normalized formal uncertainty. ``ppxf_noise`` is
-        # included only for audit; it differs from ``noise`` for M1.
+        # ``noise`` is the final likelihood denominator: the grid pPXF fits
+        # used ``noise_before_residual_scale`` and their chi-square surfaces
+        # were rescaled by 1/q². Do not apply either scalar again downstream.
         noise=noise,
-        ppxf_noise=ppxf_noise,
+        noise_before_residual_scale=noise_before_residual_scale,
         good=good,
         valid_fraction=valid_fraction,
         normalization_scale=scales,
-        covariance_scale=covariance_scale,
-        covariance_regularized=covariance_regularized.astype(np.uint8),
-        covariance_model_name=np.asarray(str(covariance_model_name)),
-        covariance_model_hash=np.asarray(str(covariance_hash)),
+        residual_noise_scale=residual_noise_scale,
+        noise_model_hash=np.asarray(str(noise_model_hash)),
         one_component_model=one_model,
         local_best_two_component_model=two_model,
         one_component_weights=np.stack(one_weights),
@@ -1162,8 +1157,7 @@ def _consolidate(
     summary["RH3_GRID_FAILED_STATES"] = n_fail
     summary["RH3_GRID_SIGMA_BOUNDARY_STATES"] = n_bound
     summary["RH3_GRID_GOOD_LOG_PIXELS"] = n_good
-    summary["RH3_COV_SCALE"] = covariance_scale
-    summary["RH3_COV_PD_REGULARIZED"] = covariance_regularized
+    summary["RH3_RESIDUAL_NOISE_SCALE"] = residual_noise_scale
     table_path = run.products_dir / "RH3_local_likelihood_summary.ecsv"
     summary.write(table_path, format="ascii.ecsv", overwrite=True)
 
@@ -1211,7 +1205,7 @@ def _consolidate(
                 best_state=(best_va[bid], best_vb[bid], best_fa[bid], best_sa[bid], best_sb[bid]),
             )
 
-    return cube_path, selected_path, table_path
+    return cube_path, selected_path, table_path, calibration_product
 
 
 def main() -> int:
@@ -1233,6 +1227,11 @@ def main() -> int:
         run = _existing_run_context(run_dir)
         resume_state_path = run.metadata_dir / "script03_resume_state.json"
         state = dict(io.read_json(resume_state_path))
+        if state.get("checkpoint_schema_version") != CHECKPOINT_SCHEMA_VERSION:
+            raise RuntimeError(
+                "This Script-3 run uses an older residual-calibration/checkpoint schema. "
+                "Start a new run for full-grid residual scaling; old checkpoints cannot be mixed."
+            )
         current_hash = _sha256(Path(args.config).expanduser().resolve())
         if current_hash != state.get("config_sha256"):
             raise RuntimeError(
@@ -1355,6 +1354,10 @@ def main() -> int:
 
         _section(logger, "1. Load Script-2 master spectra and Script-1 LSF")
         wave_obs, flux, unc, good_native, bin_map, source_table = _load_script2_arrays(products)
+        if "RH3_SPATIAL_NOISE_SCALE" not in source_table.colnames:
+            raise ValueError("Script 2 spectra lack per-bin spatial noise calibration; rerun Script 2 with stack-noise manifests")
+        if not np.all(np.isfinite(source_table["RH3_SPATIAL_NOISE_SCALE"])):
+            raise ValueError("Invalid Script 2 spatial noise scales")
         nbin = flux.shape[0]
         header = _load_prepared_rh3_header(script1_run)
         science_medium = _resolve_science_medium(cfg, header)
@@ -1548,96 +1551,41 @@ def main() -> int:
             va=va, vb=vb, fa=fa, support=support, cfg=cfg, velscale=velscale,
         )
 
-        if not bool(getattr(cfg, "RH3_COVARIANCE_ENABLE", True)):
-            raise RuntimeError(
-                "RH3_COVARIANCE_DISABLED | Production Script 3 now requires empirical covariance "
-                "calibration before likelihood cubes are generated. Set RH3_COVARIANCE_ENABLE=True."
-            )
-
-        _section(logger, "4. Calibrate and select the RH3 spectral covariance model")
-        if args.resume and covariance_calibration.calibration_products_complete(run):
-            calibration = covariance_calibration.load_calibration_run(run)
-            logger.info(
-                "Resume covariance calibration: reusing selected %s model from %s",
-                calibration.selected_model_name,
-                calibration.selection_json,
-            )
-        else:
-            existing_grid_checkpoints = list(checkpoints.glob("bin_*.npz"))
-            if args.resume and existing_grid_checkpoints:
-                raise RuntimeError(
-                    "RESUME_COVARIANCE_PRODUCTS_MISSING | Per-bin likelihood checkpoints exist but the "
-                    "saved covariance-calibration decision is incomplete. Refusing to recalibrate around "
-                    "already-computed likelihood states because that could mix incompatible chi-square metrics."
-                )
-            calibration = covariance_calibration.run_script03_covariance_calibration(
-                cfg=cfg,
-                logger=logger,
-                run=run,
-                source_table=source_table,
-                bin_map=bin_map,
-                templates_single=prepared.templates,
-                templates_two=templates_two,
-                component=component,
-                galaxy_all=gal_all,
-                noise_all=noise_all,
-                good_all=good_all,
-                wavelength=log_wave,
-                lam_temp=prepared.wavelength,
-                velscale=velscale,
-                va_grid=va,
-                vb_grid=vb,
-                fa_grid=fa,
+        _section(logger, "4. Freeze full-grid residual-noise experiment")
+        noise_model_hash = scalar_noise.fingerprint(
+            gal_all, noise_all, good_all, prepared.templates, templates_two,
+            component, log_wave, prepared.wavelength, va, vb, fa,
+            settings=dict(
+                velscale=float(velscale),
+                sigma_start=float(cfg.RH3_SIGMA_START_KMS),
                 sigma_bounds=(float(cfg.RH3_SIGMA_MIN_KMS), float(cfg.RH3_SIGMA_MAX_KMS)),
                 single_velocity_bounds=tuple(support["single_velocity_bounds_kms"]),
+                single_start=float(getattr(cfg, "RH3_SINGLE_VELOCITY_START_KMS", 0.0)),
                 degree=int(cfg.RH3_DEGREE),
                 mdegree=int(cfg.RH3_MDEGREE),
                 regul=float(cfg.RH3_REGUL),
-                sigma_start=float(cfg.RH3_SIGMA_START_KMS),
-                sigma_boundary_tolerance=float(cfg.RH3_SIGMA_BOUNDARY_WARNING_KMS),
-                workers=workers,
-                plotting_module=covariance_plotting,
-            )
-
-        selected_covariance = calibration.selected_model
-        covariance_hash = calibration.selected_model_hash
-        logger.info(
-            "Frozen production covariance: %s | hash=%s | iterations=%d | Requirement A=%s",
-            calibration.selected_model_name,
-            covariance_hash[:16],
-            selected_covariance.n_iterations,
-            "PASS" if selected_covariance.requirement_a_pass else "FAIL",
+                min_good=int(cfg.RH3_MIN_GOOD_LOG_PIXELS),
+            ),
         )
-        if not selected_covariance.requirement_a_pass:
-            raise RuntimeError(
-                "SELECTED_COVARIANCE_REQUIREMENT_A_FAILED | Internal model-selection inconsistency; "
-                "production likelihood fitting is blocked."
-            )
-        if int(selected_covariance.numerical_regularization_count) > 0:
-            quality_flags.append("RH3_COVARIANCE_PD_REGULARIZATION")
-            logger.warning(
-                "RH3_COVARIANCE_PD_REGULARIZATION | The selected covariance model required "
-                "positive-definiteness eigenvalue flooring for %d calibration whiteners. "
-                "Inspect covariance diagnostics before publication.",
-                int(selected_covariance.numerical_regularization_count),
-            )
-
-        state["covariance_model"] = str(calibration.selected_model_name)
-        state["covariance_model_hash"] = str(covariance_hash)
-        state["covariance_selection_json"] = str(calibration.selection_json)
+        calibration_product = run.products_dir / "RH3_scalar_noise_calibration.npz"
+        state["noise_model_hash"] = str(noise_model_hash)
+        state["residual_calibration_product"] = str(calibration_product)
         io.write_json(state, run.metadata_dir / "script03_resume_state.json")
-
-        _section(logger, "5. Evaluate covariance-calibrated 3-D profile-likelihood cubes")
+        logger.info(
+            "Each bin will fit the full grid once with Script-2 noise, then use "
+            "the exact best-state residual MAD as an unfloored multiplier."
+        )
+        _section(logger, "5. Evaluate and residual-calibrate 3-D profile-likelihood cubes")
         expected_shape = (va.size, vb.size, fa.size)
         completed = [
             bid for bid in range(nbin)
-            if _checkpoint_is_valid(_checkpoint_path(checkpoints, bid), expected_shape, covariance_hash)
+            if _checkpoint_is_valid(_checkpoint_path(checkpoints, bid), expected_shape, noise_model_hash)
         ]
         pending = [bid for bid in range(nbin) if bid not in set(completed)]
         if args.resume:
-            logger.info("Resume scan: %d/%d covariance-compatible bin checkpoints found; %d bins remain", len(completed), nbin, len(pending))
+            logger.info("Resume scan: %d/%d noise-model-compatible bin checkpoints found; %d bins remain", len(completed), nbin, len(pending))
         else:
-            logger.info("Production grid per bin: %d x %d x %d = %d exact covariance-aware states", va.size, vb.size, fa.size, int(np.prod(expected_shape)))
+            logger.info("Production grid per bin: %d x %d x %d = %d exact states; one post-fit residual scale", va.size, vb.size, fa.size, int(np.prod(expected_shape)))
 
         constants = {
             "templates_single": prepared.templates,
@@ -1659,9 +1607,7 @@ def main() -> int:
             "mdegree": int(cfg.RH3_MDEGREE),
             "regul": float(cfg.RH3_REGUL),
             "min_good_pixels": int(cfg.RH3_MIN_GOOD_LOG_PIXELS),
-            "covariance_model": selected_covariance,
-            "covariance_hash": str(covariance_hash),
-            "covariance_eigen_floor": float(getattr(cfg, "RH3_COVARIANCE_EIGEN_FLOOR", 1.0e-8)),
+            "noise_model_hash": str(noise_model_hash),
         }
 
         if pending:
@@ -1758,10 +1704,11 @@ def main() -> int:
                         rate = elapsed / done_now
                         remain = (len(pending) - done_now) * rate
                         logger.info(
-                            "Bin %d complete | %d/%d new bins | failed states=%d/%d (pPXF=%d, fixed-V mismatch=%d) | sigma-boundary states=%d | elapsed=%.1f min | ETA=%.1f min",
+                            "Bin %d complete | %d/%d new bins | residual scale=%.3f | failed states=%d/%d (pPXF=%d, fixed-V mismatch=%d) | sigma-boundary states=%d | elapsed=%.1f min | ETA=%.1f min",
                             bid,
                             done_now,
                             len(pending),
+                            float(result["residual_noise_scale"]),
                             int(result["n_failures"]),
                             int(np.prod(expected_shape)),
                             int(result["n_ppxf_failures"]),
@@ -1795,12 +1742,12 @@ def main() -> int:
 
         # Final safety check: every bin checkpoint must be valid before we create
         # products that downstream scripts may interpret as complete.
-        missing = [bid for bid in range(nbin) if not _checkpoint_is_valid(_checkpoint_path(checkpoints, bid), expected_shape, covariance_hash)]
+        missing = [bid for bid in range(nbin) if not _checkpoint_is_valid(_checkpoint_path(checkpoints, bid), expected_shape, noise_model_hash)]
         if missing:
             raise RuntimeError(f"Missing/invalid checkpoints after fitting: {missing[:20]}")
 
         _section(logger, "6. Consolidate likelihood products and diagnostics")
-        cube_path, selected_path, table_path = _consolidate(
+        cube_path, selected_path, table_path, calibration_product = _consolidate(
             run=run,
             checkpoints=checkpoints,
             nbin=nbin,
@@ -1810,8 +1757,7 @@ def main() -> int:
             bin_map=bin_map,
             cfg=cfg,
             logger=logger,
-            covariance_model_name=str(calibration.selected_model_name),
-            covariance_hash=str(covariance_hash),
+            noise_model_hash=str(noise_model_hash),
         )
 
         # QC summary from the consolidated table is intentionally local-minimum
@@ -1898,36 +1844,24 @@ def main() -> int:
             "profile_likelihood": True,
             "fixed_coordinates": ["V_A", "V_B", "f_A_RH3"],
             "profiled_nuisance": ["sigma_A", "sigma_B", "SSP weights", "additive polynomial"],
-            "chi2_statistic": (
-                "total covariance-aware chi-square r^T C^-1 r on one fixed good-pixel set per bin; "
-                "M1 reduces to the diagonal special case"
-            ),
+            "chi2_statistic": "total diagonal chi-square sum((residual / calibrated_sigma)^2) on fixed good pixels",
             "noise_model": {
-                "selected_model": str(calibration.selected_model_name),
-                "selected_model_hash": str(covariance_hash),
-                "per_bin_scale": "s_i calibrated from robust normalized pPXF residual scatter",
-                "correlation": "empirical lag correlation selected by M1--M4 residual adequacy + representative full-grid stability",
-                "cached_ppxf_keyword": "noise_inv_cholesky",
-                "required_ppxf_version": str(getattr(cfg, "RH3_COVARIANCE_REQUIRED_PPXF_VERSION", "9.4.8")),
-                "bootstrap_n": int(getattr(cfg, "RH3_COVARIANCE_BOOTSTRAP_N", 2000)),
-                "bootstrap_confidence": float(getattr(cfg, "RH3_COVARIANCE_BOOTSTRAP_CONFIDENCE", 0.95)),
-                "max_lag_pixels": int(getattr(cfg, "RH3_COVARIANCE_MAX_LAG", 20)),
-                "wavelength_blocks_M3_M4": int(getattr(cfg, "RH3_COVARIANCE_WAVELENGTH_BLOCKS", 3)),
-                "convergence_tolerance": float(getattr(cfg, "RH3_COVARIANCE_CONVERGENCE_TOL", 0.01)),
-                "max_iterations": int(getattr(cfg, "RH3_COVARIANCE_MAX_ITER", 5)),
-                "representative_radial_bins": int(getattr(cfg, "RH3_COVARIANCE_VALIDATION_RADIAL_BINS", 12)),
-                "representative_total_bins": int(len(calibration.representative_bins)),
-                "model_selection_json": str(calibration.selection_json),
-                "candidate_model_product": str(calibration.covariance_product),
+                "type": "per-bin spatial and unfloored full-grid-best residual scalars; diagonal spectral fit",
+                "residual_calibration_hash": str(noise_model_hash),
+                "residual_calibration_product": str(calibration_product),
+                "residual_calibration_method": scalar_noise.SCHEMA,
+                "residual_scale_floor_applied": False,
+                "grid_fit_noise": "Script-2 spatially calibrated sigma",
+                "saved_chi2_rescaling": "divide every grid and control chi-square by best-state residual scale squared",
+                "spatial_calibration_source": s02_manifest.get("spatial_noise_products"),
+                "spectral_lag_covariance_modeled": False,
             },
-            "likelihood_width_covariance_calibrated": True,
-            "likelihood_width_publication_final": bool(
-                str(getattr(cfg, "RH3_EXPECTED_GRATING", "RH3")).strip().upper() == "RH3"
-            ),
+            "likelihood_width_scalar_calibrated": True,
+            "likelihood_width_publication_final": False,
             "likelihood_width_publication_final_note": (
-                "Covariance calibration passed. Publication-final RH3 interpretation additionally "
-                "requires the production RH3 grating/data; RL or other surrogate integration runs "
-                "remain development tests even when their covariance is internally calibrated."
+                "Intervals are conditional on the diagonal spectral-noise assumption; "
+                "the best-fit residual scale may also reflect model flexibility. "
+                "Final data and inference checks remain incomplete."
             ),
             "fraction_definition": (
                 "stellar-template light fraction of component A over RH3_FIT_REST_RANGE_ANGSTROM; "
@@ -1943,13 +1877,7 @@ def main() -> int:
                 "log_spectra_and_local_best_fits_npz": str(selected_path),
                 "local_likelihood_summary_ecsv": str(table_path),
                 "prepared_xsl_templates_npz": str(template_path),
-                "covariance_candidates_npz": str(calibration.covariance_product),
-                "covariance_calibration_fits_npz": str(calibration.calibration_fit_product),
-                "covariance_validation_grids_npz": str(calibration.validation_grid_product),
-                "covariance_validation_bins_ecsv": str(run.products_dir / "covariance_validation_bins.ecsv"),
-                "covariance_model_selection_json": str(calibration.selection_json),
-                "covariance_iteration_history_ecsv": str(run.products_dir / "RH3_covariance_iteration_history.ecsv"),
-                "covariance_model_comparison_ecsv": str(run.products_dir / "RH3_covariance_model_comparison.ecsv"),
+                "scalar_noise_calibration_npz": str(calibration_product),
             },
         }
         io.write_json(manifest, run.metadata_dir / "script03_manifest.json")
@@ -1966,10 +1894,7 @@ def main() -> int:
         logger.info("Per-bin summary: %s", table_path)
         logger.info("Quality flags: %s", quality_flags)
         logger.info("Elapsed time: %.2f min", (time.perf_counter() - start_time) / 60.0)
-        logger.info(
-            "Covariance calibration and representative M1--M4 full-grid validation passed; "
-            "the saved Delta-chi2 widths use the frozen selected RH3 covariance model."
-        )
+        logger.info("Scalar-calibrated diagonal likelihood cubes complete; publication interval coverage remains unvalidated.")
         return 0
 
     except Exception:

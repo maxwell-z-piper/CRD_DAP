@@ -18,19 +18,18 @@ Primary responsibilities
 4. Run mandatory PowerBin on BL only at the configured target S/N.
 5. Transfer BL membership to red/RH3 through the celestial WCS, without
    independently re-binning the red arm.
-6. Geometrically coadd BL and red/RH3 spectra, formal diagonal variances, and
+6. Geometrically coadd BL and red/RH3 spectra, then calibrate aperture errors
+   from independent Gaussian KcwiKit stack replays for every actual bin.
    continuum-light spatial weights for every bin.
 7. Save bin maps, membership, per-bin metadata, spectra, inherited preliminary
    Script-1 spectral-correlation diagnostics, figures, and full provenance.
 
 Statistical caveat
 ------------------
-Script 1 demonstrated spectral correlation from resampling/stacking, but it did
-not calibrate a spatial covariance law between neighboring KcwiKit spaxels.
-Therefore Script 2 uses formal diagonal spatial variances by default and records
-that limitation explicitly.  PowerBin's callable capacity is retained so a
-validated non-additive spatial covariance law can be inserted later without
-changing the tessellation architecture.
+Script 1 measures spectral correlation only as a diagnostic. Script 2 compares
+mock-stack bin variances with formal diagonal bin variances and applies one
+measured spatial multiplier per actual bin. The tessellation target S/N remains
+nominal because bin membership is defined before this calibration.
 """
 
 from __future__ import annotations
@@ -47,7 +46,24 @@ from astropy.io import fits
 from astropy.table import Table
 
 import crd_utils as crd
-from crd_utils import binning, io, plotting
+from crd_utils import binning, io, plotting, spatial_noise
+
+
+def _check_noise_reference_grid(cube, manifest_path, source_manifest):
+    """Catch a Script-1/noise-stack mix-up before building the PowerBins."""
+    record = io.read_json(manifest_path)
+    reference = Path(record['reference_products']['i']).expanduser().resolve()
+    header = fits.getheader(reference)
+    reference_shape = (int(header['NAXIS2']), int(header['NAXIS1']), int(header['NAXIS3']))
+    if tuple(cube.shape) != reference_shape:
+        raise ValueError(
+            f'{cube.arm}: Script-1 prepared cube has shape {cube.shape}, but the '
+            f'noise-replay science stack has shape {reference_shape}. '
+            f'Script 1 used reduction manifest '
+            f"{source_manifest.get('source_reduction_manifest')}; "
+            f'noise reference is {reference}. Rerun Script 1 with the reduction '
+            f'manifest for this science stack, then start a new Script-2 run.'
+        )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -407,6 +423,8 @@ def _save_spectra(
     rh3_spec: binning.CoaddedBinSpectra,
     bl_corr,
     rh3_corr,
+    formal_uncert,
+    spatial_scales,
 ) -> Path:
     header = fits.Header()
     header["CRDDAP"] = True
@@ -421,13 +439,15 @@ def _save_spectra(
         hdus[-1].header["BUNIT"] = "Angstrom"
         hdus.append(fits.ImageHDU(np.asarray(spec.flux, dtype=np.float32), name=f"{prefix}_FLUX"))
         hdus.append(fits.ImageHDU(np.asarray(spec.uncertainty, dtype=np.float32), name=f"{prefix}_UNCERT"))
+        hdus.append(fits.ImageHDU(np.asarray(formal_uncert[prefix], dtype=np.float32), name=f"{prefix}_FORMAL_UNCERT"))
+        hdus.append(fits.ImageHDU(np.asarray(spatial_scales[prefix], dtype=np.float32), name=f"{prefix}_SPATIAL_SCALE"))
         hdus.append(fits.ImageHDU(np.asarray(spec.good, dtype=np.uint8), name=f"{prefix}_GOOD"))
         hdus.append(
             fits.ImageHDU(np.asarray(spec.contributing_spaxels, dtype=np.int16), name=f"{prefix}_NCONTRIB")
         )
         bunit = str(cube.header.get("BUNIT", ""))
-        hdus[-4].header["SRCBUNIT"] = bunit[:68]
-        hdus[-3].header["SRCBUNIT"] = bunit[:68]
+        hdus[-6].header["SRCBUNIT"] = bunit[:68]
+        hdus[-5].header["SRCBUNIT"] = bunit[:68]
 
     add_arm("BL", bl, bl_spec)
     add_arm("RH3", rh3, rh3_spec)
@@ -489,6 +509,10 @@ def main() -> int:
         crd.log_section(logger, "1. Load Script-1 prepared products")
         bl = io.load_prepared_cube(source_products["prepared_bl"], expected_arm="BL")
         rh3 = io.load_prepared_cube(source_products["prepared_rh3"], expected_arm="RH3")
+        for cube in (bl, rh3):
+            _check_noise_reference_grid(
+                cube, getattr(cfg, f"{cube.arm}_NOISE_STACK_MANIFEST"), source_manifest
+            )
         _check_spatial_sampling(bl, rh3, cfg)
         bl_coords = _load_spatial_coordinates(source_products["bl_coords"], bl.good_spaxel.shape)
         rh3_coords = _load_spatial_coordinates(source_products["rh3_coords"], rh3.good_spaxel.shape)
@@ -585,13 +609,10 @@ def main() -> int:
         crd.log_section(logger, "3. Run BL PowerBin tessellation")
         cov_mode = str(cfg.POWERBIN_SPATIAL_COVARIANCE_MODE).lower()
         cov_alpha = float(cfg.POWERBIN_SPATIAL_COVARIANCE_ALPHA)
-        if cov_mode == "none":
-            _quality_flag(
-                quality_flags,
-                "SPATIAL_COVARIANCE_UNCALIBRATED",
-                logger,
-                "PowerBin currently uses formal diagonal spatial variance. Script 1 measured spectral correlation, not a validated spatial covariance law; no empirical correction is invented here.",
-            )
+        if cov_mode != "none":
+            raise ValueError("Scalar replay calibration requires POWERBIN_SPATIAL_COVARIANCE_MODE='none'; avoid double correction")
+        _quality_flag(quality_flags, "BINNING_TARGET_SN_NOMINAL", logger,
+            "PowerBin tessellation uses formal BL noise; measured spatial scales are applied to extracted bins below.")
         pb = binning.run_powerbin(
             bl_x,
             bl_y,
@@ -668,6 +689,30 @@ def main() -> int:
             pixel_area_arcsec2=rh3_area,
             min_member_fraction=float(cfg.BIN_SPECTRUM_MIN_MEMBER_FRACTION),
         )
+        formal_uncert = {"BL": bl_spec.uncertainty.copy(), "RH3": rh3_spec.uncertainty.copy()}
+        spatial_scales = {}
+        spatial_products = {}
+        for arm, cube, bins, area_ in (("BL", bl, pb.bin_map, bl_area),
+                                       ("RH3", rh3, transfer.bin_map, rh3_area)):
+            manifest_path = getattr(cfg, f"{arm}_NOISE_STACK_MANIFEST", None)
+            if not manifest_path:
+                raise ValueError(f"{arm}_NOISE_STACK_MANIFEST is required for scalar spatial-noise calibration")
+            spec = bl_spec if arm == "BL" else rh3_spec
+            corrected, scales = spatial_noise.calibrate(
+                cube, bins, spec, manifest_path=manifest_path, n_bins=pb.n_bins,
+                pixel_area_arcsec2=area_,
+                min_member_fraction=float(cfg.BIN_SPECTRUM_MIN_MEMBER_FRACTION),
+                rest_range=tuple(cfg.BL_BINNING_REST_RANGE_ANGSTROM if arm == "BL" else cfg.RH3_SN_REST_RANGE_ANGSTROM),
+                redshift=float(cfg.REDSHIFT),
+                output_path=run.products_dir / f"{arm}_spatial_noise_calibration.npz")
+            spatial_scales[arm] = scales
+            spatial_products[arm] = str(run.products_dir / f"{arm}_spatial_noise_calibration.npz")
+            logger.info("%s spatial scale: median %.3f, range %.3f--%.3f", arm,
+                        np.median(scales), np.min(scales), np.max(scales))
+            if arm == "BL":
+                bl_spec = corrected
+            else:
+                rh3_spec = corrected
         # Achieved continuum S/N is a QC/reporting quantity, not the quantity
         # used to define the PowerBin tessellation.  Use the robust
         # ratio-of-medians estimator and retain the older median(flux/uncertainty)
@@ -779,6 +824,8 @@ def main() -> int:
         table["BIN_ID"] = np.arange(pb.n_bins, dtype=int)
         table["NPIX_BL"] = n_bl
         table["NPIX_RH3"] = n_rh
+        table["BL_SPATIAL_NOISE_SCALE"] = spatial_scales["BL"]
+        table["RH3_SPATIAL_NOISE_SCALE"] = spatial_scales["RH3"]
         table["AREA_ARCSEC2"] = area
         table["X_GEOM_ARCSEC"] = cent["x_geom"]
         table["Y_GEOM_ARCSEC"] = cent["y_geom"]
@@ -856,7 +903,8 @@ def main() -> int:
         )
         bl_corr = _load_preliminary_corr(source_products["bl_noise"])
         rh3_corr = _load_preliminary_corr(source_products["rh3_noise"])
-        spectra_path = _save_spectra(run, bl, rh3, bl_spec, rh3_spec, bl_corr, rh3_corr)
+        spectra_path = _save_spectra(run, bl, rh3, bl_spec, rh3_spec, bl_corr, rh3_corr,
+                                     formal_uncert, spatial_scales)
 
         manifest = {
             "script": "02_make_master_BL_bins",
@@ -910,7 +958,10 @@ def main() -> int:
             "bl_spatial_scale_reason": bl_spec.spatial_scale_reason,
             "rh3_spatial_scale_factor": float(rh3_spec.spatial_scale_factor),
             "rh3_spatial_scale_reason": rh3_spec.spatial_scale_reason,
-            "formal_spatial_variance_only": True,
+            "formal_spatial_variance_only": False,
+            "spatial_noise_manifests": {arm: str(getattr(cfg, f"{arm}_NOISE_STACK_MANIFEST")) for arm in ("BL", "RH3")},
+            "spatial_noise_products": spatial_products,
+            "spatial_noise_method": "per-bin scalar from independent exposure-noise KcwiKit stack replays",
             "preliminary_spectral_correlation_carried_forward": bool(bl_corr is not None or rh3_corr is not None),
             "quality_flags": quality_flags,
             "products": {

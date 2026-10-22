@@ -16,6 +16,17 @@ Science-driver sequence:
 07_uncertainties_and_final_maps.py
 ```
 
+For the current Mac data, first build the red ZAP and blue science stacks and both noise
+ensembles using `/Users/maxpiper/CRD_DRP/noise/README.md`. Regenerate the red
+atmospheric mask and reduction manifest on the new wavelength grid. Run Script 1
+with `--reduction-manifest` pointing to that new manifest, then Script 2 using
+the `BL_NOISE_STACK_MANIFEST` and `RH3_NOISE_STACK_MANIFEST` paths in the target
+config. Script 2 applies one mock-derived spatial noise multiplier to each bin.
+Script 3 runs ordinary diagonal pPXF over the complete grid once in every bin,
+then measures an unfloored residual multiplier from each exact best grid state
+and rescales that bin's saved chi-square surface. Start a fresh Script-3 run
+directory because earlier checkpoints use another residual-calibration method.
+
 Each script should:
 
 1. load and validate a target configuration;
