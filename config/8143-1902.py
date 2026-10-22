@@ -45,15 +45,18 @@ REDSHIFT = 0.04138  # dimensionless; required
 # spatial/spectral WCS before using them.
 SCIENCE_INPUT_FORMAT = "kcwikit"  # supported: "kcwikit" (production), "drp" (legacy/testing)
 
-BL_ICUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/blue_kskywizard_icubes.fits")
-BL_VCUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/blue_kskywizard_vcubes.fits")
-BL_MCUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/blue_kskywizard_mcubes.fits")
-BL_ECUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/blue_kskywizard_ecubes.fits")
+BL_ICUBE = Path("/Users/maxpiper/KCWI_Data/noise_calibration/blue_science/science_stack/stack_icubes.fits")
+BL_VCUBE = Path("/Users/maxpiper/KCWI_Data/noise_calibration/blue_science/science_stack/stack_vcubes.fits")
+BL_MCUBE = Path("/Users/maxpiper/KCWI_Data/noise_calibration/blue_science/science_stack/stack_mcubes.fits")
+BL_ECUBE = Path("/Users/maxpiper/KCWI_Data/noise_calibration/blue_science/science_stack/stack_ecubes.fits")
 
-RH3_ICUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/red_kskywizard_icubes.fits")
-RH3_VCUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/red_kskywizard_vcubes.fits")
-RH3_MCUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/red_kskywizard_mcubes.fits")
-RH3_ECUBE = Path("/Users/maxpiper/KCWI_Data/redux/kskywizard/red_kskywizard_ecubes.fits")
+BL_NOISE_STACK_MANIFEST = Path("/Users/maxpiper/KCWI_Data/noise_calibration/blue_noise/noise_manifest.json")
+RH3_NOISE_STACK_MANIFEST = Path("/Users/maxpiper/KCWI_Data/noise_calibration/red_zap_noise/noise_manifest.json")
+
+RH3_ICUBE = Path("/Users/maxpiper/KCWI_Data/noise_calibration/red_zap_science/science_stack/stack_icubes.fits")
+RH3_VCUBE = Path("/Users/maxpiper/KCWI_Data/noise_calibration/red_zap_science/science_stack/stack_vcubes.fits")
+RH3_MCUBE = Path("/Users/maxpiper/KCWI_Data/noise_calibration/red_zap_science/science_stack/stack_mcubes.fits")
+RH3_ECUBE = Path("/Users/maxpiper/KCWI_Data/noise_calibration/red_zap_science/science_stack/stack_ecubes.fits")
 
 # Optional legacy/native-DRP input mode. These are ignored when
 # SCIENCE_INPUT_FORMAT="kcwikit". A DRP cube must contain an UNCERT extension.
@@ -245,15 +248,11 @@ REGISTRATION_CONTRAST_SMOOTH_SIGMA_PIX = 1.0
 # translation. A correlation peak at this boundary is treated as inconclusive.
 REGISTRATION_MAX_RESIDUAL_SHIFT_ARCSEC = 2.0
 
-# Noise/covariance characterization. Exact implementation is developed in
-# crd_utils.noise; these switches record the intended production behavior.
-ESTIMATE_VARIANCE_RESCALING = True
-ESTIMATE_SPECTRAL_COVARIANCE = True
-USE_COVARIANCE_IN_PPXF_WHEN_SUPPORTED = True
-
-# Script 1's covariance estimate is intentionally preliminary because no pPXF
-# residual model exists yet. It uses high-pass residuals from low-continuum
-# spaxels as a QC screen and is revisited after the first stellar fits.
+# The spectral fit assumes diagonal covariance between wavelength samples.
+# Script 1's high-pass correlation estimate is QC only: it is not a covariance
+# model and does not rescale the science uncertainty. Scripts 2 and 3 estimate
+# per-bin spatial and residual uncertainty multipliers, respectively.
+# These settings control only the preliminary Script-1 diagnostic.
 NOISE_DIAGNOSTIC_MAX_SPAXELS = 200
 NOISE_LOW_FLUX_PERCENTILE = 30.0
 NOISE_SAVGOL_WINDOW = 31
@@ -446,70 +445,18 @@ RH3_REGUL = 0.0
 # only; it is no longer combined with just max(|V_grid|).
 RH3_TEMPLATE_PADDING_SIGMA = 4.0
 
-# Development noise model: Script 3 presently uses the formal diagonal Script-2
-# uncertainty vector after overlap log rebinning. Its minimum/topology are useful
-# now, but the exp(-Delta chi2/2) WIDTH is explicitly not publication-final until
-# residual variance scaling / spectral covariance are calibrated and Script 3 is
-# rerun. No automatic chi2-to-one rescaling is performed.
+# Script 2 measures spatial coaddition uncertainty from fixed stack replays.
+# Script 3 measures a residual multiplier from each bin's exact full-grid best
+# fit and applies it once to the saved noise vector and chi-square surface.
+# Spectral lag covariance is not modeled; intervals are conditional on the
+# diagonal spectral-noise assumption and the scalar calibrations below.
 
 # Restartability: one completed PowerBin is one checkpoint. Interrupted runs keep
 # checkpoints for --resume. After ALL final products and the manifest are written
 # successfully, delete them to avoid permanently duplicating the likelihood data.
 SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS = True
 
-# These are numerical/statistical controls, not physical priors on the galaxy.
-# Script 3 records the adopted values in its manifest.  The defaults below are
-# the production baseline developed for the CRD_DAP covariance-calibration
-# architecture and should be changed only through an explicit sensitivity test.
-RH3_COVARIANCE_ENABLE = True
-RH3_COVARIANCE_REQUIRED_PPXF_VERSION = "9.4.8"
-
-# Measure residual autocorrelation over a deliberately generous lag range.
-# Lags whose simultaneous 95% PowerBin-bootstrap band contains zero are treated
-# as statistically consistent with zero rather than retained because of a
-# single-lag fluctuation.
-RH3_COVARIANCE_MAX_LAG = 40
-RH3_COVARIANCE_MIN_PAIRS = 25
-RH3_COVARIANCE_BOOTSTRAP_N = 2000
-RH3_COVARIANCE_BOOTSTRAP_CONFIDENCE = 0.95
-RH3_COVARIANCE_RANDOM_SEED = 12345
-
-# M3/M4 permit wavelength non-stationarity through equal-width wavelength
-# blocks. M2 uses one stationary correlation curve over the complete fit band.
-RH3_COVARIANCE_WAVELENGTH_BLOCKS = 3
-
-# Free two-component residual-calibration fits.  Each fraction of the common
-# VA/VB search span is tried in both component orderings.  These are optimizer
-# starts only; they are not priors and their returned disk labels are not used
-# as physical measurements.
-RH3_COVARIANCE_CALIBRATION_SEPARATION_FRACTIONS = (0.15, 0.40, 0.75)
-
-# Iterative residual -> covariance -> covariance-aware refit loop.  Convergence
-# requires BOTH max fractional change in s_i and max absolute change in rho(k)
-# to be < 0.01.  The production likelihood grid never starts after MAX_ITER.
-RH3_COVARIANCE_CONVERGENCE_TOL = 0.01
-RH3_COVARIANCE_MAX_ITER = 5
-RH3_COVARIANCE_WHITENED_SCALE_TOL = 0.05
-
-# Small numerical positive-definiteness floor used only if the directly measured
-# finite-sample correlation matrix is not Cholesky-factorable.  Any use is
-# counted and recorded as QC; this does not choose the empirical lag structure.
-RH3_COVARIANCE_EIGEN_FLOOR = 1.0e-8
-
-# Requirement-B representative PowerBins: 12 deterministic radial samples,
-# six per side of PA_kin, plus up to one added off-center sigma peak per side.
-RH3_COVARIANCE_VALIDATION_RADIAL_BINS = 12
-RH3_COVARIANCE_PA_CORRIDOR_DIAMETER_FACTOR = 1.0
-RH3_COVARIANCE_ADD_2SIGMA_BINS = True
-RH3_COVARIANCE_2SIGMA_INNER_RADIUS_FRACTION = 0.10
-RH3_COVARIANCE_2SIGMA_OUTER_RADIUS_FRACTION = 0.95
-
-# Requirement-B agreement is judged at the actual production-grid resolution.
-# Best cells and the edges of 1-D profile-likelihood regions at these Delta-chi2
-# levels may move by at most one production grid cell under added covariance
-# complexity.
-RH3_COVARIANCE_MODEL_AGREEMENT_MAX_CELL_SHIFT = 1
-RH3_COVARIANCE_MODEL_AGREEMENT_DELTA_CHI2 = (1.0, 4.0)
+# Residual multipliers above and below one are retained without a floor.
 
 # =============================================================================
 # 11. SCRIPT 4: GLOBAL XOOKSUUT-STYLE DISK MODEL
