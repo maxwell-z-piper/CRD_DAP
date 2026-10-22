@@ -20,7 +20,7 @@ def test_excluded_invalid_samples_are_sanitized_without_mutating_inputs():
     galaxy_original = galaxy.copy()
     noise_original = noise.copy()
 
-    g2, n2, l2, gp2, W = ppxf_utils._validate_spectrum_inputs(
+    g2, n2, l2, gp2 = ppxf_utils._validate_spectrum_inputs(
         galaxy, noise, lam, goodpixels
     )
 
