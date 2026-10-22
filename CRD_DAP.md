@@ -67,9 +67,8 @@ CRD_DAP/
 │   ├── __init__.py
 │   ├── binning.py
 │   ├── config.py
-│   ├── covariance.py
-│   ├── covariance_calibration.py
-│   ├── covariance_plotting.py
+│   ├── scalar_noise.py
+│   ├── spatial_noise.py
 │   ├── cube_utils.py
 │   ├── disk_model.py
 │   ├── geometry.py
@@ -87,8 +86,8 @@ CRD_DAP/
 │   ├── runtime.py
 │   ├── sampling.py
 │   ├── templates.py
-│   └── validation.py
-├── ppxf_patch_9_4_8/
+│   └──  validation.py
+├── ppxf_patch9_4_8/
 │   ├── README.md
 │   ├── apply_ppxf_9_4_8_cached_whitener_patch.py
 │   └── tests/
@@ -110,7 +109,8 @@ CRD_DAP/
 
 - **Script 01:** implemented with the production `CRD_DRP_reduction_manifest.json` handoff. It verifies the validated reduction package, resolves BLUE/RED science products, applies the finalized CRD_DRP atmospheric masks, and preserves both native and combined mask provenance in the prepared cubes.
 - **Script 02:** implemented and integration-tested; BL defines one master PowerBin tessellation and the same physical memberships are transferred to the red/RH3 stream. CRD_DRP wavelength exclusions are inherited automatically through Script-1 `GOODWAVE`/`GOODMASK`.
-- **Script 03:** implemented, undergoing testing; using exact independent `(V_A,V_B,f_A,RH3)` profile-likelihood cubes, one-component controls, empirical-LSF XSL preparation, covariance modeling and matrix construction, restart checkpoints, and multiprocessing. The production atmospheric mask is inherited from Scripts 01--02 rather than rebuilt inside Script 03. The new addition tackles creating the covariance matrix for each powerbin using the simplest of 4 potential models depending on which adequately describes the correlation between pixels and wavelength. The script can take both `--script1-run` and `--script2-run` explicitly, which is useful when completed upstream run directories have been moved or renamed and older manifest paths are stale. Can also take `--workers` to specify how many cores to be run in parallel, and `--resume` if the script was stopped mix-run.
+- **Script 03:** implemented for exact independent `(V_A,V_B,f_A,RH3)` profile-likelihood cubes, one-component controls, empirical-LSF XSL preparation, restart checkpoints, and multiprocessing. The production atmospheric mask is inherited from Scripts 01--02 rather than rebuilt inside Script 03. The first development pass uses formal diagonal spectral uncertainties and explicitly marks likelihood widths as uncalibrated until residual variance/covariance is revisited.
+- **Script 03:** implemented, undergoing testing; can take both `--script1-run` and `--script2-run` explicitly, which is useful when completed upstream run directories have been moved or renamed and older manifest paths are stale. Can also take `--workers` to specify how many cores to be run in parallel, and `--resume` if the script was stopped mix-run.
 - **Scripts 04--07:** design documented; implementation follows after Script-3 integration testing.
 
 ## Intended science scripts
@@ -172,10 +172,8 @@ The logging utilities are designed to write to both the terminal and log files. 
 
 - `METHODS.md` is the detailed scientific and statistical design document.
 - `DIAGNOSTICS.md` is the detailed catalogue of every planned diagnostic figure, what it shows, how it is calculated, how to interpret it, and what action to take if it looks wrong.
-- `LOCAL_SETIP.md` is the detailed instructions for getting the pipeline up and running.
-- `README.md` contains information regarding the current state of the pipeline and what has been implemented, its status, and any other pipeline-step-specific integration information.
 
-Both `METHODS.md` and `DIAGNOSTICS.md` evolve together with the code. A new science diagnostic should not be considered complete until it is documented in `DIAGNOSTICS.md`.
+Both files should evolve together with the code. A new science diagnostic should not be considered complete until it is documented in `DIAGNOSTICS.md`.
 
 ## Development philosophy
 

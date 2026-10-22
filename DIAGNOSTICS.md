@@ -352,15 +352,15 @@ Revisit variance scaling and covariance characterization before using \(e^{-\Del
 
 ### Purpose
 
-Visualizes wavelength-pixel covariance introduced by cube reconstruction, interpolation, and stacking.
+Shows preliminary wavelength-pixel correlation introduced by cube reconstruction, interpolation, and stacking.
 
 ### Suggested display
 
-Correlation coefficient as a function of spectral lag, and optionally a covariance/correlation matrix for representative spectra.
+Correlation coefficient as a function of spectral lag, for diagnostic inspection only.
 
 ### Healthy result
 
-Either covariance is negligible beyond a small lag, or a stable structure is measured and incorporated/approximated in pPXF fits and MC noise generation.
+The measured correlation is reported clearly. The production likelihood uses scalar noise calibration and does not fit spectral lag coefficients; its confidence widths require separate injection/recovery validation.
 
 ---
 
@@ -368,7 +368,7 @@ Either covariance is negligible beyond a small lag, or a stable structure is mea
 
 ## `master_bins.png`
 
-**Script:** 02  
+**Script:** 02
 **Class:** major QC + publication candidate
 
 ### Purpose
@@ -396,7 +396,7 @@ Very elongated/nonphysical bins, tiny disconnected islands, or bins extending ac
 
 ## `BL_SN_per_bin.png` / `RH3_SN_per_bin.png`
 
-**Script:** 02  
+**Script:** 02
 **Class:** QC
 
 Separate convenience versions of achieved S/N maps.
@@ -445,282 +445,30 @@ Maps physical bin area or number of member spaxels. This helps interpret later p
 
 ---
 
-# Script 3 — RH3 covariance calibration, profile likelihood, and preliminary kinematics
+# Script 3 — RH3 scalar noise calibration and profile likelihood
 
-Script 3 now contains a pre-production covariance-calibration gate. The full all-bin profile-likelihood calculation must not begin until the covariance candidates have converged, residual adequacy (Requirement A) has been checked, and representative full-grid stability (Requirement B) has selected a production model. The figures below are therefore part of the statistical validation of the likelihood itself, not optional cosmetic plots.
+After Script 3 completes, inspect `products/RH3_scalar_noise_calibration.npz`: `raw_scale`, `adopted_scale`, and `normalized_residual` cover every PowerBin. The raw and adopted scales are identical; values below one are retained. Review unusually large or small scales and structured best-fit residuals before interpreting likelihood widths. The full grid was fitted with the Script-2 spatially corrected uncertainty, and every saved chi-square was divided by the square of the residual scale. The saved `noise` in `RH3_log_spectra_and_local_best_fits.npz` is the final likelihood denominator; `noise_before_residual_scale` records what pPXF received during the grid fit.
 
-## `covariance_validation_bins_on_sigma.png`
-
-**Script:** 03  
-**Class:** critical covariance-model validation geometry
-
-### Purpose
-
-Shows the 12 deterministic major-axis radial validation bins plus up to two additional off-center high-dispersion candidate bins over the preliminary one-component RH3 dispersion map.
-
-The baseline radial sample contains six bins on each signed side of $PA_{\rm kin}$ at normalized radii $1/7,\ldots,6/7$. A star marks a bin associated with the automatically located off-center $2\sigma$ candidate; if that candidate was not already one of the radial bins, it is added rather than substituted.
-
-### Healthy result
-
-The selected set should visibly span the inner, intermediate, and outer galaxy on both sides of the kinematic major axis. Outer representatives should naturally include some larger PowerBins. The likely $2\sigma$ regions should be represented without destroying the symmetric radial baseline.
-
-### Warning signs
-
-- many radial selections lie conspicuously far from $PA_{\rm kin}$;
-- the automatic off-center dispersion candidate is obviously a central peak, aperture edge, or isolated noisy bin;
-- the two sides have unexpectedly different geometric coverage;
-- many rows required corridor fallback.
-
-### Numerical/log companions
-
-```text
-products/covariance_validation_bins.ecsv
-```
-
-Inspect `CORRIDOR_FALLBACK`, `TWO_SIGMA_CORRIDOR_FALLBACK`, `BASE_RADIAL_SELECTION`, `IS_2SIGMA_PEAK`, and `ADDED_FOR_2SIGMA` rather than inferring selection details from the figure alone.
-
----
-
-## `covariance_validation_bins_on_RH3_SN.png`
+## `RH3_single_component_velocity.png` and `RH3_single_component_sigma.png`
 
 **Script:** 03  
-**Class:** critical covariance-model validation geometry
+**Class:** QC
 
-### Purpose
-
-Displays the identical representative-bin set over the achieved RH3 S/N map. It verifies that Requirement B is not accidentally being tested only on the highest-S/N central spectra and that the radial scheme reaches larger/lower-S/N outer PowerBins.
-
-### Warning signs
-
-A validation set confined almost entirely to one S/N regime weakens the argument that a chosen covariance structure is adequate across the galaxy. The deterministic radial selection should normally avoid this failure automatically.
-
----
-
-## `RH3_covariance_baseline_residual_stack.png`
-
-**Script:** 03  
-**Class:** critical template-mismatch / reduction-residual diagnostic
-
-### Purpose
-
-Plots the median normalized residual across all PowerBins from the initial high-quality multi-start two-component calibration fits, together with the 16--84% PowerBin envelope and number of contributing bins versus wavelength.
-
-### Interpretation
-
-Random measurement noise should average toward zero in the median. A coherent feature that recurs at the same wavelength across many bins can instead indicate template mismatch, LSF mismatch, an unmasked atmospheric residual, or another deterministic spectral-model failure. Such structure can mimic wavelength covariance and must be inspected before accepting an especially flexible covariance model.
-
-### Warning signs
-
-- repeated positive/negative line-shaped residuals at strong stellar features;
-- coherent structures at known atmospheric-mask edges;
-- broad wavelength regions with a shifted median residual;
-- a sharp drop in contributing bins that coincides with an apparent correlation feature.
-
-The plotted 16--84% envelope is diagnostic only; it is not used as the covariance estimator.
-
----
-
-## `RH3_covariance_M1_raw_lag_band.png` through `RH3_covariance_M4_raw_lag_band.png`
-
-**Script:** 03  
-**Class:** critical covariance-estimation diagnostic
-
-### Purpose
-
-Shows the empirical residual correlation coefficient versus integer log-wavelength lag for each candidate model's final calibration residuals, with the simultaneous PowerBin-bootstrap confidence band.
-
-For M1/M2 the model correlation itself is wavelength-stationary; M3/M4 permit block-dependent structure. The raw diagnostic shows what correlation remains in the residuals used to update each candidate.
-
-### Interpretation
-
-A nonzero lag is statistically consistent with zero only when the simultaneous confidence band contains zero. The band is simultaneous across the inspected nonzero lags (and wavelength blocks where relevant), avoiding a series of uncorrected per-lag significance claims.
-
-### Warning signs
-
-- substantial correlation remains to the configured maximum lag;
-- different wavelength blocks show qualitatively incompatible structures;
-- isolated long-lag features appear without a plausible stable short-lag pattern;
-- the lag structure changes strongly between covariance iterations.
-
-### Numerical companions
-
-```text
-products/RH3_covariance_iteration_history.ecsv
-products/RH3_covariance_candidates.npz
-```
-
----
-
-## `RH3_covariance_M1_whitened_lag_band.png` through `RH3_covariance_M4_whitened_lag_band.png`
-
-**Script:** 03  
-**Class:** Requirement A — production gate
-
-### Purpose
-
-Tests the covariance model after it has been applied. If $C=LL^T$ and $W=L^{-1}$, the plotted residuals correspond to the correlation of
-
-\[
-\mathbf q = W\mathbf r.
-\]
-
-A successful covariance model should transform the residuals into approximately independent unit-scale noise.
-
-### PASS condition
-
-For Requirement A, the simultaneous 95% bootstrap confidence band must contain zero at **every tested nonzero lag in every diagnostic wavelength block**, and the median robust whitened-residual width must be within the configured tolerance of unity.
-
-### Warning signs / action
-
-If a model fails this diagnostic, it is not eligible for production selection even if its free two-component calibration fit looks visually good. Inspect template/LSF mismatch, wavelength dependence, atmospheric residuals, and bin-dependent behavior before changing statistical tolerances.
-
----
-
-## `RH3_covariance_M1_scale_vs_bin_properties.png` through `RH3_covariance_M4_scale_vs_bin_properties.png`
-
-**Script:** 03  
-**Class:** noise-amplitude / spatial-coaddition QC
-
-### Purpose
-
-Shows the per-PowerBin empirical standard-deviation scale $s_i$ against RH3 member-spaxel count and achieved RH3 S/N.
-
-### Interpretation
-
-$s_i$ changes the overall covariance amplitude; it does not multiply the correlation coefficient. A systematic trend with PowerBin size can be scientifically informative because Script-2 aperture summation may inherit spatial covariance that is not contained in the formal diagonal variance propagation.
-
-### Warning signs
-
-Strong discontinuities or extreme isolated $s_i$ values can indicate poor calibration fits, bad variance propagation, residual atmospheric features, or insufficient information in individual bins.
-
----
-
-## `RH3_covariance_selected_residual_stack.png`
-
-**Script:** 03  
-**Class:** final covariance-calibration residual check
-
-### Purpose
-
-Repeats the residual-stack diagnostic after the covariance iteration has converged for the finally selected M1--M4 model. Compare it directly with `RH3_covariance_baseline_residual_stack.png`.
-
-### Healthy result
-
-The covariance-aware refit should not introduce new coherent stellar-feature residuals. Remaining deterministic structures should be understood before publication, even when the formal whitened-lag test passes.
-
----
-
-## `RH3_covariance_model_comparison_bins/bin_XXXX.png`
-
-**Script:** 03  
-**Class:** Requirement B — production gate
-
-### Purpose
-
-For each of the 12--14 representative PowerBins, compares the one-dimensional profile-$\Delta\chi^2$ curves obtained from the **complete production grid** under M1, M2, M3, and M4. The panels profile over the other two grid coordinates for $V_A$, $V_B$, and $f_{A,\rm RH3}$.
-
-### Interpretation
-
-These plots answer the scientific rather than purely statistical question: does added covariance complexity materially change the inferred profile-likelihood surface?
-
-The selection rule is to adopt the least-complex Requirement-A-passing model that agrees with every more-complex passing model at the configured production-grid resolution.
-
-### Warning signs / action
-
-If residual-adequate candidates materially disagree, Script 3 blocks the production run rather than automatically choosing M4. Inspect the per-bin comparison figures for whether the disagreement is localized to low-S/N/large bins, the $2\sigma$ region, a grid edge, or a particular parameter direction.
-
-### Numerical companions
-
-```text
-products/RH3_covariance_model_validation_grids.npz
-products/RH3_covariance_model_comparison.ecsv
-metadata/RH3_covariance_model_selection.json
-```
-
----
-
-## `RH3_single_component_velocity.png`
-
-**Script:** 03  
-**Class:** QC + science comparison
-
-### Purpose
-
-One-component stellar velocity map fitted with the final selected covariance metric. It verifies the global rotation pattern and provides context for later global disk modeling.
-
----
-
-## `RH3_single_component_sigma.png`
-
-**Script:** 03  
-**Class:** critical geometry input + science comparison
-
-### Purpose
-
-One-component stellar dispersion map fitted with the selected covariance metric. The preliminary version of this quantity is also used to guarantee that the covariance validation set represents the strongest off-center dispersion candidate on each side of the galaxy.
-
-### Warning signs
-
-A candidate $2\sigma$ peak that is only a one-bin spike or lies at the aperture boundary should be treated cautiously and inspected against the validation-bin overlay.
-
----
+These maps reveal large velocity/dispersion discontinuities, edge values and low-information regions in the independent one-component control fits. They are not disk-A/B estimates.
 
 ## `RH3_likelihood_bins/bin_XXXX.png`
 
 **Script:** 03  
-**Class:** per-bin analysis diagnostic
+**Class:** per-bin fit diagnostic
 
-### Purpose
-
-Representative view of the final covariance-calibrated 3-D profile-likelihood cube for one PowerBin, including the local one-component and independent local two-component best fits.
-
-### Interpretation
-
-Reveals whether the two-component solution is sharp, elongated/degenerate, multimodal, component-swapped, or poorly constrained. The local minimum remains a diagnostic; Script 4, not Script 3, establishes globally coherent disk labels.
-
-### Warning signs
-
-- likelihood minimum on a grid edge;
-- large failed-state or sigma-boundary fractions;
-- multiple nearly disconnected minima;
-- a nearly featureless surface;
-- a spectral local best fit with coherent residual structure despite a formally narrow likelihood basin.
-
----
+Inspect the local two-component likelihood surface and best spectral model for grid-edge minima, failed states, broad or disjoint basins, and coherent stellar-feature residuals. The physical disk labels are assigned later by the global model.
 
 ## `RH3_local_one_vs_two_delta_chi2.png`
 
 **Script:** 03  
 **Class:** QC
 
-Maps
-
-\[
-T_i=\chi^2_{1\mathrm{comp},i}-\chi^2_{2\mathrm{comp},i}
-\]
-
-using the same selected covariance metric for the one- and two-component fits. It must not be labeled as a formal p-value/significance map; later mock calibration supplies the empirical reliability interpretation.
-
----
-
-## Covariance calibration hard-stop diagnostics
-
-Two failures intentionally prevent the expensive all-bin grid from starting:
-
-1. **`COVARIANCE_CALIBRATION_MAXITER_REACHED`** — a candidate did not satisfy both $\Delta_s<0.01$ and $\Delta_\rho<0.01$ by five iterations;
-2. **`COVARIANCE_MODEL_STABILITY_FAILURE`** — residual-adequate covariance candidates give materially different representative likelihood surfaces.
-
-When either occurs, inspect in this order:
-
-1. multi-start calibration-fit residual quality and recurrent stellar-feature residuals;
-2. raw versus whitened lag bands, especially wavelength-block differences;
-3. CRD_DRP atmospheric-mask provenance and remaining sky/telluric structure;
-4. RH3 LSF/template-resolution matching;
-5. $s_i$ versus PowerBin size/S/N;
-6. whether multiple calibration starts produce substantially different-quality spectra;
-7. representative-bin full-grid differences, including whether only one spatial regime fails.
-
-Do **not** solve a failure merely by loosening the convergence or agreement threshold until the run passes. Threshold changes should be explicit sensitivity tests supported by stable science results.
+The difference in total scalar-calibrated diagonal chi-square between one- and two-component fits is an internal comparison, not a formal detection significance. Reliability and interval coverage require injection/recovery tests. Spectral lag correlation measured in Script 1 remains a diagnostic; it is not included in the scalar likelihood.
 
 ---
 

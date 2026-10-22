@@ -293,13 +293,15 @@ $$
 
 If uncertainties are underestimated by a factor $a$, $\chi^2$ differences become artificially too large by approximately $a^{-2}$, producing likelihood basins that are too narrow.
 
-Script 1 must therefore characterize:
-
-- residual normalized-width / variance rescaling;
-- spectral covariance introduced by interpolation/resampling/stacking;
-- whether a full pPXF covariance matrix or a validated approximation is appropriate.
-
-This is a required precondition for trusting profile-likelihood widths.
+The adopted spectral-fit likelihood uses a wavelength-dependent, scalar-calibrated
+uncertainty vector and a **diagonal covariance between wavelength samples**. It
+therefore treats errors at different wavelengths as uncorrelated for the fit;
+this is an analysis assumption, not a claim that the reduced spectra are
+physically free of spectral correlation. No spectral lag coefficients or dense
+covariance matrices are fitted. Script 1's high-pass correlation measurement is
+a preliminary diagnostic and does not change the likelihood or set its noise
+scale. Scripts 2 and 3 calibrate the uncertainty amplitude as described below.
+Any profile-likelihood interval is conditional on this diagonal approximation.
 
 ---
 
@@ -397,7 +399,7 @@ If the requested interval extends beyond the Script-1 usable wavelength envelope
 
 An optional development-only utility, `scripts/scan_script02_sn_windows.py`, can scan fixed-width observed-frame windows in an already completed Script-2 spectral product. It reports the positive-continuum bin fraction, median positive-bin S/N, lower-tail S/N, and extreme-|S/N| fraction. This utility never edits the target config and is not imported by the production pipeline.
 
-## 5.5 Geometric aperture spectra and formal uncertainties
+## 5.5 Geometric aperture spectra and scalar-calibrated uncertainties
 
 Spatial extraction is a **geometric sum**, not an inverse-variance-weighted spatial average. This preserves the actual light mixture that later bin-integrated disk models must predict.
 
@@ -413,7 +415,7 @@ $$
 \mathrm{Var}_i(\lambda)=\sum_{p\in\mathcal B_i}\mathrm{Var}_p(\lambda).
 $$
 
-A wavelength sample is accepted for the bin only when at least the configured fraction of its spatial members contributes a valid sample.
+A wavelength sample is accepted for the bin only when at least the configured fraction of its spatial members contributes a valid sample. The formal error is multiplied by an empirical spatial scale measured from mock stack sums for that same bin. Both arrays are saved.
 
 The Script-1 preliminary spectral-correlation sequence is copied into the Script-2 spectral product as provenance/QC information. It is **not** converted into a final covariance matrix because that high-pass diagnostic was intentionally preliminary.
 
@@ -453,7 +455,7 @@ so a given color means the same S/N in both panels while a few very high-S/N bin
 
 Important non-fatal flags include:
 
-- `SPATIAL_COVARIANCE_UNCALIBRATED`: the current PowerBin capacity uses formal diagonal spatial variance because no empirical spatial covariance law has yet been validated;
+- `BINNING_TARGET_SN_NOMINAL`: PowerBin membership was defined using nominal BL noise before the per-bin mock calibration;
 - `BIN_TRANSFER_INCOMPLETE`: fewer red/RH3 pixels than expected could be assigned to the BL-defined physical apertures;
 - `LOW_BL_BIN_SN`: the measured S/N of one or more final BL spectra falls substantially below the configured target despite the PowerBin proxy;
 - `SN_WINDOW_COVERAGE_WARNING`: a configured achieved-S/N window extends beyond the Script-1 `GOODWAVE` envelope; the pipeline records the truncation but does not change the window automatically;
@@ -521,7 +523,10 @@ Because nuisance parameters are optimized at every explicit $(V_A,V_B,f_A)$ coor
 The fundamental statistic saved by the cube is the **total** chi-square on the fixed fitted pixels,
 
 $$
-\chi^2_{\rm total}=\sum_{p\in\mathrm{good}}\left[\frac{F_p-M_p}{\sigma_p}\right]^2
+\chi^2_{\rm total}
+=
+\sum_{p\in\mathrm{good}}
+\left[\frac{F_p-M_p}{\sigma_p}\right]^2
 $$
 
 for the current diagonal-noise development model. pPXF's reduced $\chi^2$ is retained as QC, but downstream relative-likelihood calculations must use differences in total chi-square.
@@ -606,7 +611,10 @@ $$
 Both components then receive identical copies of this normalized SSP basis. pPXF's two-component `fraction` constraint is
 
 $$
-f_{A,\mathrm{RH3}}=\frac{\sum_j w_{A,j}}{\sum_j w_{A,j}+\sum_j w_{B,j}}.
+f_{A,\mathrm{RH3}}
+=
+\frac{\sum_j w_{A,j}}
+{\sum_j w_{A,j}+\sum_j w_{B,j}}.
 $$
 
 Because all SSPs share the same passband normalization, this has the intended interpretation:
@@ -650,378 +658,21 @@ RH3_REGUL = 0.0
 
 for every fit whose chi-square enters the likelihood cube.
 
-## 6.9 Why covariance is calibrated inside Script 3
+## 6.9 Scalar uncertainty calibration
 
-Script 3 is the first stage that has both ingredients needed for a production spectral-noise model: the **exact log-wavelength spectra actually passed to pPXF** and a flexible stellar model capable of removing the two-component galaxy spectrum. The preliminary Script-1 autocorrelation diagnostic remains useful as an early warning, but it is not used as the final covariance matrix because its residuals are produced by smooth high-pass subtraction rather than by a stellar fit, and because Script 2 spatially coadds spaxels while Script 3 performs the final overlap rebinning onto the pPXF grid.
+The reduced-exposure `UNCERT` arrays specify independent Gaussian input draws for a fixed KcwiKit stacking experiment. The science shifts, masks, drizzle setting, exposure selection, and stack geometry are replayed exactly. In Script 2 each mock stack is summed through **every actual PowerBin**, using the same Script-1 hard-good samples and the same spatial membership. For bin $i$, the spatial multiplier is the square root of the median across usable science-window channels of the empirical mock variance divided by the formal binned variance. It multiplies the entire native-grid error spectrum for that bin without changing its wavelength dependence. The formal error and multiplier are saved separately. The BL PowerBin tessellation is made from nominal input S/N; achieved S/N uses the calibrated errors.
 
-The production ordering is therefore
+This experiment measures the spatial coaddition penalty of the fixed reduction and stacking process. It does not repeat or assign uncertainty to detector calibration, the fitted ZAP sky model, telluric correction, or measured shifts. The red ZAP exposures were cropped by KSkyWizard to `WAVGOOD0`–`WAVGOOD1` before sky subtraction; the new stack’s shorter wavelength range is inherited from that crop.
 
-```text
-Script-2 RH3 PowerBin spectra
-        ↓
-fixed Script-3 log-wavelength experiment
-        ↓
-high-quality multi-start two-component pPXF calibration fits
-        ↓
-residual variance/correlation calibration
-        ↓
-M1--M4 covariance adequacy + representative full-grid validation
-        ↓
-freeze one selected covariance model
-        ↓
-full 17×17×9 profile-likelihood cubes
-```
+Script 3 rebins these spatially corrected RH3 spectra to its fixed log-wavelength experiment. For every PowerBin it evaluates the complete, unregularized $V_A\times V_B\times f_A$ grid once using the Script-2 spatially calibrated error spectrum and a fixed good-pixel set. It refits the exact best grid state to retain the model spectrum, then measures normalized residuals $z=(g-m)/\sigma_{spatial}$. The residual multiplier is $q_i=1.4826\,\mathrm{median}|z-\mathrm{median}(z)|$. Values above and below one are both used; no floor is applied. This estimator is conditional on the selected best-fitting model and can itself be affected by fit flexibility or model mismatch. Every bin is fitted; none is chosen as representative.
 
-The covariance is calibrated **before** the expensive all-bin likelihood calculation. The complete 2601-state grid is not required to estimate the covariance: covariance calibration needs a sufficiently faithful model spectrum and its residuals, not the full profile-likelihood surface. The complete production grid is evaluated under all four candidate covariance structures only for a small deterministic validation set (Section 6.15), after which the selected covariance model is frozen and used for every production PowerBin.
+The final error spectrum is $\sigma_{fit,i}=q_i\sigma_{spatial,i}$. Since $q_i$ is uniform across the fitted wavelengths of one bin, and the grid fits are unregularized, each state's total and reduced chi-square is divided by $q_i^2$ without rerunning the 2601 grid states. The best grid location is unchanged. The saved total chi-square is $\sum_{j\in good}[(g_j-m_j)/\sigma_{fit,j}]^2$; the grid profiles over the two dispersions, template weights and additive continuum as before. The saved `noise` vector is this final likelihood denominator, while `noise_before_residual_scale` is the vector supplied to pPXF during the grid fit. Neither scalar should be applied again. The calibration product records the unfloored scales, residuals and an input hash. Per-bin checkpoints include those diagnostics and use a new schema version; older checkpoints cannot be resumed into this method.
 
-The covariance calibration is repeated for every new RH3 Script-3 run because it depends on the actual reduction, stacking, PowerBin coaddition, masking, fitting interval, and log-rebinning. Once selected for that fixed experiment, however, it is a **one-and-done statistical calibration**: later RH3 refinement stages should reconstruct and reuse the same frozen model rather than relearn covariance from each refined kinematic state.
+No spectral lag coefficients or dense covariance matrices enter the likelihood. Script-1 high-pass autocorrelation remains an observational diagnostic, not a correction or a condition that must be driven to zero. The spatial and residual scalars calibrate uncertainty amplitude; they do not remove correlation between wavelength samples. Profile-likelihood intervals are therefore conditional on the adopted diagonal approximation. The likelihood-width publication flag remains false while the final data and inference checks are incomplete; it does not require a future spectral-covariance model.
 
-## 6.10 Covariance-calibration pPXF residuals
+## 6.10 Restartability and CPU workers
 
-For every PowerBin, Script 3 first performs a one-component control and then a deterministic **multi-start free two-component pPXF fit**. The calibration fit uses the same scientifically relevant ingredients as the later likelihood calculation: the same XSL basis, wavelength grid, good-pixel mask, LSF treatment, polynomial convention, and dispersion bounds. Both stellar components have free velocities and dispersions. Multiple velocity-separation seeds and both A/B orderings are used so that one poor initial guess is unlikely to leave a false two-component residual pattern.
-
-The free two-component calibration fit is not itself interpreted as the physical decomposition. Its component labels may swap, and its optimized velocities need not coincide with the globally coherent solution eventually selected by Scripts 4--5. Its purpose is narrower: obtain a model spectrum that reproduces the observed stellar spectrum well enough that the remaining high-frequency residuals can diagnose the measurement/reduction noise.
-
-For PowerBin $i$ and log-wavelength pixel $j$, define
-
-$$
-F_{ij}
-$$
-
-as the observed normalized flux density,
-
-$$
-M_{ij}
-$$
-
-as the best multi-start two-component pPXF calibration model,
-
-$$
-r_{ij}=F_{ij}-M_{ij}
-$$
-
-as the residual, and
-
-$$
-\sigma_{ij}
-$$
-
-as the normalized formal one-sigma uncertainty propagated from Script 2 through Script 3's overlap rebinning. The formal normalized residual is
-
-$$
-z_{ij}=\frac{r_{ij}}{\sigma_{ij}}.
-$$
-
-The per-bin empirical noise-amplitude factor is
-
-$$
-s_i = \mathrm{robust\,std}(z_{ij}),
-$$
-
-where Script 3 uses the Gaussian-equivalent median absolute deviation (MAD) rather than an ordinary RMS so that a small number of unmodelled pixels cannot set the uncertainty scale for the entire PowerBin. Thus $s_i>1$ means the residual scatter is larger than predicted by the formal errors, while $s_i<1$ means it is smaller. Importantly, $s_i$ is an **overall standard-deviation scale**; it is not a multiplier on the correlation coefficient itself.
-
-A failed one-component control does not automatically prevent covariance calibration if the multi-start two-component calibration fit succeeds. The failure is retained as QC. A PowerBin for which the multi-start two-component calibration fit cannot obtain a valid model is a hard covariance-calibration failure, because its residuals are not trustworthy enough to define the noise model.
-
-## 6.11 Lag correlations, bootstrap uncertainty, and template-mismatch protection
-
-After dividing each residual spectrum by both its formal uncertainty and its fitted scale $s_i$, Script 3 measures the correlation between samples separated by $k$ log-wavelength pixels. For PowerBin $i$,
-
-$$
-\rho_i(k) = \mathrm{Corr}\left(\frac{r_{ij}}{s_i\sigma_{ij}},\frac{r_{i,j+k}}{s_i\sigma_{i,j+k}}\right).
-$$
-
-Lag zero is fixed by definition,
-
-$$
-\rho_i(0)=1.
-$$
-
-Nonzero lags are measured out to the configured generous maximum (`RH3_COVARIANCE_MAX_LAG`; default 20 pixels). The pipeline does **not** assume beforehand that covariance vanishes after a particular number of pixels. Instead, it measures the lag curve and lets the data determine which nonzero lags have statistically supported correlation.
-
-Uncertainty on the pooled lag curve is obtained with a **PowerBin bootstrap**. Entire PowerBins are resampled with replacement; wavelength pixels are never independently resampled, because doing so would destroy the correlation being measured. For each bootstrap realization, Script 3 recomputes the robust pooled lag curve. A simultaneous confidence band is then formed from the bootstrap distribution of the largest absolute departure from the central curve over all inspected nonzero lags (and, where relevant, all wavelength blocks). The production default is a simultaneous 95% band from 2000 bootstrap realizations.
-
-A measured lag is called statistically consistent with zero when
-
-$$
-0\in[\rho_{\rm lower}(k),\rho_{\rm upper}(k)]
-$$
-
-for that simultaneous band. This is different from saying that the measured coefficient is numerically small: a small coefficient with a very small uncertainty can still be significantly nonzero. Lags whose simultaneous band contains zero are set to zero in the compact adopted correlation model.
-
-The same blockwise calculation is also a safeguard against **template mismatch**. In reality the residual can be written schematically as
-
-$$
-r(\lambda)=n(\lambda)+\delta(\lambda),
-$$
-
-where $n$ is stochastic measurement/reduction noise and $\delta$ is deterministic spectral-model mismatch. An imperfect line depth, LSF, abundance pattern, or kinematic line shape can produce neighboring residuals with the same sign and therefore mimic statistical covariance. Genuine reconstruction/rebinning covariance is expected to depend primarily on pixel separation, whereas template mismatch is often tied to particular wavelength regions or absorption features. Script 3 therefore tests whitened residual correlations in several broad wavelength blocks even when the candidate covariance itself is wavelength-stationary, and saves residual-stack diagnostics so repeated feature-locked residual structure can be recognized. A model is not accepted merely because positive and negative correlations from different parts of the spectrum cancel in a full-band average.
-
-## 6.12 Definitions of $D_i$, $R_i$, $C_i$, and the four candidate models
-
-For PowerBin $i$, let
-
-$$
-D_i=\mathrm{diag}(\sigma_{i1},\sigma_{i2},\ldots,\sigma_{iN})
-$$
-
-be the diagonal matrix containing the formal one-sigma uncertainties of the fixed Script-3 wavelength experiment, and let $R_i$ be a correlation matrix with unit diagonal. The covariance model is
-
-$$
-\boxed{C_i=s_i^2D_iR_iD_i}.
-$$
-
-The four candidates are deliberately nested from least to most flexible:
-
-1. **M1 — diagonal:** $R_i=I$. Each PowerBin has its own $s_i$, but wavelength pixels are otherwise treated as independent.
-2. **M2 — common stationary correlation:** all bins share one empirically measured lag correlation $R_{\rm common}$, while every bin retains its own $s_i$.
-3. **M3 — common wavelength-block correlation:** all bins share a set of empirically measured lag curves, but the curve is allowed to differ between broad wavelength blocks. Each bin still has its own $s_i$.
-4. **M4 — per-bin wavelength-block correlation:** each PowerBin is allowed its own blockwise lag coefficients $R_i$, but only at lags for which the ensemble bootstrap shows globally supported nonzero correlation. This restriction prevents a single noisy residual spectrum from inventing arbitrary long-range covariance.
-
-M2--M4 do not discard the Script-2 variances. They add empirical off-diagonal structure to those formal per-pixel errors. The hierarchy also separates two physically distinct questions: $s_i$ describes **how much** noise remains in a bin, whereas $R_i$ describes **which wavelength samples move together**.
-
-For blockwise models, Script 3 divides the fixed wavelength vector into deterministic equal-width blocks (default three). A pair of pixels is assigned the lag coefficient of the block containing the pair midpoint. This block model is not claimed to be a physical kernel; it is a deliberately simple diagnostic extension used to test whether the stationary approximation is adequate. If M2 passes the residual and likelihood-stability tests, the more complex block structure is not retained.
-
-## 6.13 Exact covariance-aware pPXF likelihood and cached whitening
-
-For a model residual vector $\mathbf r_i$, the Gaussian correlated-noise statistic is
-
-$$
-\boxed{\chi_i^2=\mathbf r_i^{\mathsf T}C_i^{-1}\mathbf r_i}.
-$$
-
-Factor the covariance as
-
-$$
-C_i=L_iL_i^{\mathsf T},
-$$
-
-where $L_i$ is the lower-triangular Cholesky factor, and define the whitening operator
-
-$$
-W_i=L_i^{-1}.
-$$
-
-The whitened residual is
-
-$$
-\mathbf q_i=W_i\mathbf r_i,
-$$
-
-so the same statistic can be written
-
-$$
-\boxed{\chi_i^2=\mathbf q_i^{\mathsf T}\mathbf q_i}.
-$$
-
-CRD_DAP uses the validated pPXF 9.4.8 cached-whitener patch in `ppxf_patch_9_4_8/`. The patch adds the `noise_inv_cholesky` interface and has been regression-tested against stock full-covariance pPXF. For a fixed PowerBin, Script 3 constructs $W_i$ **once** and passes the same operator to every pPXF state in that bin. This avoids repeating an identical Cholesky factorization for all 2601 states without changing pPXF's covariance-aware objective function or nuisance-parameter optimization.
-
-The active pPXF version and the presence of the cached-whitener keyword are hard-checked before covariance calibration begins. Script 3 refuses a production covariance run if the validated interface is absent.
-
-Rejected wavelength samples are decorrelated from fitted samples in the full-vector covariance representation. They remain excluded by `goodpixels`, and the whitening operator is explicitly checked so a fitted whitened residual cannot depend on a masked residual through matrix multiplication.
-
-If an empirical lag matrix is not numerically positive definite, Script 3 applies a small eigenvalue floor and renormalizes the correlation matrix to unit diagonal before Cholesky factorization. Any such use is counted and flagged (`RH3_COVARIANCE_PD_REGULARIZATION`) so it cannot occur silently.
-
-## 6.14 Iterative calibration, convergence, and Requirement A
-
-There is a small circular dependence: the initial pPXF residuals are obtained with a provisional covariance model, while changing the covariance can slightly change the best-fitting stellar model and therefore its residuals. Each candidate M1--M4 is therefore calibrated iteratively:
-
-```text
-initial multi-start 2-C fit
-        ↓
-estimate s_i and rho(k)
-        ↓
-covariance-aware multi-start 2-C refit
-        ↓
-re-estimate s_i and rho(k)
-        ↓
-repeat until stable
-```
-
-Between iterations $n$ and $n+1$, Script 3 monitors
-
-$$
-\Delta_s=\max_i\left|\frac{s_i^{(n+1)}-s_i^{(n)}}{s_i^{(n)}}\right|
-$$
-
-and
-
-$$
-\Delta_\rho=\max_k\left|\rho^{(n+1)}(k)-\rho^{(n)}(k)\right|,
-$$
-
-with the maximum extended over wavelength blocks and PowerBins where applicable. The locked convergence rule is
-
-$$
-\boxed{\Delta_s<0.01\quad\text{and}\quad\Delta_\rho<0.01.}
-$$
-
-These are documented numerical development tolerances, not universal physical constants. Their adequacy should be checked in sensitivity tests before the final publication run.
-
-The hard maximum is
-
-```python
-RH3_COVARIANCE_MAX_ITER = 5
-```
-
-iterations. If a candidate reaches the hard stop without convergence, Script 3 writes the iteration history and a failure record, emits `COVARIANCE_CALIBRATION_MAXITER_REACHED`, and **does not launch the production likelihood grid**. The diagnostic guidance directs the user to inspect calibration-fit quality, coherent stellar-feature residuals/template mismatch, atmospheric residuals, the LSF, wavelength non-stationarity, bin-size/S/N dependence, and multi-start stability. The intended response is investigation, not merely loosening the 0.01 criterion until the run passes.
-
-After convergence, **Requirement A** tests whether the adopted candidate actually explains the residual statistics. Residuals are whitened with the candidate covariance. A passing candidate requires:
-
-- a median robust whitened-residual standard deviation within the configured tolerance of unity (development default ±5%); and
-- the simultaneous 95% PowerBin-bootstrap confidence band to contain zero at every tested nonzero lag in every diagnostic wavelength block.
-
-Thus Requirement A asks directly whether the supposedly whitened residuals behave like approximately independent unit-scale noise.
-
-## 6.15 Representative bins and Requirement B: scientific stability of the likelihood surface
-
-Passing residual whiteness is necessary but not sufficient. An unnecessarily flexible covariance model can fit noise in the covariance estimate itself and alter the scientific likelihood surface. Script 3 therefore evaluates **the complete production grid under all four covariance models** for a deterministic representative subset of PowerBins before choosing the production model.
-
-The baseline validation set contains 12 PowerBins: six on each signed side of $PA_{\rm kin}$. On each side, the requested normalized radii are
-
-$$
-\frac{1}{7},\frac{2}{7},\ldots,\frac{6}{7}
-$$
-
-of that side's usable major-axis radial extent. This keeps the number of validation bins fixed while automatically scaling the physical radial step to galaxy size and sampling inner, intermediate, and outer regions.
-
-The normal major-axis corridor half-width is based on the median equivalent circular PowerBin diameter. If $\widetilde A$ is the median PowerBin area,
-
-$$
-\boxed{D_{\rm med}=2\sqrt{\frac{\widetilde A}{\pi}}.}
-$$
-
-A bin is normally eligible when its centroid satisfies
-
-$$
-|x_\perp|\le D_{\rm med}
-$$
-
-for the default corridor factor. Within the corridor, the unused PowerBin centroid closest to the requested point on the PA axis is selected. If no unused bin remains in the corridor, Script 3 still guarantees a representative sample by choosing the unused same-side centroid closest to $PA_{\rm kin}$, using radial proximity as a tie-breaker; the fallback is explicitly flagged in the ECSV and log.
-
-After these symmetric 12 radial bins are fixed, Script 3 searches the preliminary one-component dispersion profile for the strongest off-center local maximum on each side inside a configurable 10--95% radial window. If the corresponding PowerBin is already in the 12, that row is marked as containing the candidate $2\sigma$ region. If it is not, the bin is **added rather than substituted**, so the final validation set contains 12--14 unique PowerBins. This retains symmetric radial coverage while guaranteeing representation of the region expected to provide particularly strong two-component information. The automatic peak is a validation locator, not by itself a claim that the galaxy is physically a classical $2\sigma$ system.
-
-For every representative bin and every M1--M4 candidate, Script 3 evaluates the exact production
-
-$$
-17\times17\times9=2601
-$$
-
-state grid. No narrowed $\Delta V$ stencil is substituted for this validation.
-
-**Requirement B** compares the scientific outputs of candidate covariance models at the resolution of the production grid. It compares the location of the minimum and the edges of one-dimensional profile $\Delta\chi^2$ intervals at configured levels (development defaults $\Delta\chi^2=1$ and 4). The default numerical stability allowance is one production-grid cell on any axis. These are grid-resolution/sensitivity settings rather than physical priors and should be checked before publication.
-
-The final decision rule is:
-
-> Choose the **least complex** M1--M4 model that passes Requirement A and whose representative full-grid likelihood surfaces are stable against every more complex model that also passes Requirement A.
-
-Examples:
-
-```text
-M1 fails A
-M2 passes A and agrees with M3/M4
-M3 passes A
-M4 passes A
-→ adopt M2
-```
-
-or
-
-```text
-M1/M2 fail A
-M3 passes A and agrees with M4
-M4 passes A
-→ adopt M3
-```
-
-If residual-adequate models materially disagree, the pipeline does **not** automatically choose M4. It writes a model-selection failure with diagnostic guidance and blocks the production grid, because disagreement can indicate covariance overfitting, wavelength non-stationarity, template/LSF mismatch, or insufficient information.
-
-Once selected, the covariance model is frozen. PowerBin $i$ may have its own $s_i$ and, if required by the selected model, its own $R_i$, but that same $C_i$ is used for every $(V_A,V_B,f_A)$ state within that bin. This fixed metric is required for the state's $\chi^2$ values to be directly comparable.
-
-## 6.16 One-component control and interpretation of the calibrated likelihood cube
-
-Each production PowerBin still receives a single stellar LOSVD control using the same final wavelength experiment and the **selected frozen covariance metric**. This saves
-
-$$
-V_{\star,1C},\qquad\sigma_{\star,1C},\qquad\chi^2_{1C}.
-$$
-
-The local raw comparison
-
-$$
-T_i=\chi^2_{1C,i}-\min_{V_A,V_B,f_A}\chi^2_{2C,i}
-$$
-
-is useful QC but is not converted directly into a textbook p-value. Secure two-component recovery is calibrated later with mocks because mixture-model regularity assumptions are not guaranteed here.
-
-For each candidate state $c$ in one PowerBin, Script 3 saves the covariance-aware total $\chi^2_i(c)$. The local relative surface is
-
-$$
-\Delta\chi_i^2(c)=\chi_i^2(c)-\min_{c'}\chi_i^2(c'),
-$$
-
-and the corresponding relative-likelihood weight is
-
-$$
-w_i(c)\propto\exp[-\Delta\chi_i^2(c)/2].
-$$
-
-These are **relative-likelihood weights**, not Bayesian posterior probabilities. After the covariance-calibration requirements pass, the width of this Script-3 surface uses the empirically selected frozen spectral covariance model and is no longer marked as the old development-only diagonal-noise likelihood width.
-
-## 6.17 Saved covariance and likelihood products
-
-In addition to the original likelihood products, Script 3 saves the complete covariance decision trail. Important products are:
-
-```text
-products/RH3_covariance_candidates.npz
-products/RH3_covariance_calibration_fits.npz
-products/RH3_covariance_iteration_history.ecsv
-products/covariance_validation_bins.ecsv
-products/RH3_covariance_model_validation_grids.npz
-products/RH3_covariance_model_comparison.ecsv
-metadata/RH3_covariance_model_selection.json
-```
-
-`RH3_covariance_candidates.npz` stores the compact $s_i$, lag-correlation coefficients, wavelength-block labels, convergence/QC state, and selected-model metadata. Dense $N_\lambda\times N_\lambda$ inverse-Cholesky matrices are intentionally **not** written for every bin because they are large and can be reconstructed exactly from the compact model plus the saved formal uncertainty vector and good-pixel mask. Downstream RH3 refinement should use this compact saved model to reconstruct/factor each $C_i$ once and reuse it.
-
-The main products remain:
-
-```text
-products/RH3_likelihood_cubes.npz
-products/RH3_log_spectra_and_local_best_fits.npz
-products/RH3_local_likelihood_summary.ecsv
-products/XSL_RH3_templates.npz
-metadata/script03_manifest.json
-```
-
-The likelihood product records the selected covariance-model name/hash and per-bin scale. `RH3_log_spectra_and_local_best_fits.npz` deliberately preserves `noise` as the normalized **formal** Script-2 uncertainty. An additional `ppxf_noise` vector is saved for audit. This distinction prevents a downstream stage from applying $s_i$ twice when reconstructing the frozen covariance.
-
-## 6.18 Restartability and CPU workers
-
-One completed production PowerBin is the atomic likelihood-grid checkpoint:
-
-```text
-checkpoints/bin_0000.npz
-checkpoints/bin_0001.npz
-...
-```
-
-Checkpoint schema version and the selected covariance-model hash are checked on resume. A checkpoint generated under a different covariance decision is therefore not silently reused.
-
-The pre-production covariance products are also reusable on resume, but only when the complete saved model-selection decision exists. If per-bin likelihood checkpoints exist while covariance-calibration products are missing or incomplete, Script 3 refuses to recalibrate around those existing states because doing so could mix incompatible $\chi^2$ metrics in one final cube.
-
-The config file is SHA-256 checked before resuming. Script 3 normally obtains the Script-1 provenance path from the Script-2 manifest, but also accepts `--script1-run <path>` for a moved/renamed run. Once completed likelihood checkpoints exist, changing Script-1 provenance is refused because it could mix different wavelength/LSF assumptions.
-
-After every bin has completed and **all consolidated numerical products plus the Script-3 manifest have been written successfully**, the checkpoint directory is deleted by default:
-
-```python
-SCRIPT03_DELETE_CHECKPOINTS_ON_SUCCESS = True
-```
-
-`--workers N` launches $N$ Python worker processes and caps BLAS/OpenMP thread pools to one thread per worker before NumPy/pPXF import. During both calibration and the expensive production grid, permanent logs record bin-level completion and failures. The production grid retains the terminal-only heartbeat behavior described previously: a spinner, PowerBin checkpoint progress, elapsed time, time since the newest completed bin, and an ETA after timing information is available.
-
-CAPFIT can emit repeated `RuntimeWarning`s when its internal predicted reduction is zero (`actred/prered`) even when pPXF ultimately returns a valid fit. Script 3 suppresses only the two exact CAPFIT scalar-division warnings by warning category, message, and module. Pipeline warnings and unrelated Python warnings remain enabled.
-
----
+Script 3 writes one atomic checkpoint per completed bin and verifies configuration and noise-experiment hashes on resume. A fresh Script-2 run is required when changing the stacked science cube, atmospheric mask or mock ensemble. `--workers N` controls the expensive likelihood-grid process pool; the best-state residual calibration occurs within each completed bin. Checkpoints are deleted only after successful consolidation when the configured cleanup switch is enabled.
 
 # 7. Script 4 — global two-disk model
 
@@ -1094,7 +745,10 @@ The code should not silently decide based on an undocumented threshold. It shoul
 Baseline:
 
 $$
-\Theta=\{x_0,y_0,PA,i,V_{\mathrm{sys}},V_{A,1}\ldots V_{A,K},V_{B,1}\ldots V_{B,K}\}.
+\Theta=
+\{x_0,y_0,PA,i,V_{\mathrm{sys}},
+V_{A,1}\ldots V_{A,K},
+V_{B,1}\ldots V_{B,K}\}.
 $$
 
 Both disks share center, PA, inclination, and systemic velocity initially. They have independent non-parametric ring velocities.
@@ -1214,7 +868,9 @@ The global disk model predicts continuous velocities that generally do not land 
 For every bin, rerun pPXF at
 
 $$
-V_{A,i}^{\mathrm{global}}, \qquad V_{B,i}^{\mathrm{global}}
+V_{A,i}^{\mathrm{global}},
+\qquad
+V_{B,i}^{\mathrm{global}}
 $$
 
 rather than reporting only interpolated nuisance parameters from the coarse grid.
@@ -1422,7 +1078,9 @@ A repeated cell may require only one expensive BL pPXF calculation; its multipli
 For a sampled RH3 state, BL supplies
 
 $$
-L_{\mathrm{BL}}(c,f_A) \propto \exp\left[-\frac{\Delta\chi^2_{\mathrm{BL}}}{2}\right].
+L_{\mathrm{BL}}(c,f_A)
+\propto
+\exp\left[-\frac{\Delta\chi^2_{\mathrm{BL}}}{2}\right].
 $$
 
 Because the proposal draws already follow the RH3 distribution, the BL likelihood reweights the sampled ensemble toward the joint RH3+BL target.
@@ -1517,14 +1175,24 @@ This preserves correlations between the two disk population measurements better 
 The gold-standard realization is end-to-end:
 
 $$
-\mathrm{perturb\ RH3} \rightarrow \mathrm{RH3\ likelihood} \rightarrow \mathrm{global\ disk\ model} \rightarrow \mathrm{exact\ RH3\ extraction} \rightarrow \mathrm{perturb\ BL} \rightarrow \mathrm{population\ fit}.
+\mathrm{perturb\ RH3}
+\rightarrow
+\mathrm{RH3\ likelihood}
+\rightarrow
+\mathrm{global\ disk\ model}
+\rightarrow
+\mathrm{exact\ RH3\ extraction}
+\rightarrow
+\mathrm{perturb\ BL}
+\rightarrow
+\mathrm{population\ fit}.
 $$
 
 This captures the fact that BL populations are conditional on uncertain RH3 kinematics.
 
 ## 10.2 Noise realizations
 
-Use the covariance-aware noise model characterized in Script 1 rather than independent per-pixel perturbations if the data show significant spectral covariance.
+Noise realizations for the final science uncertainty stage must preserve the measured spatial and residual scalar calibrations and be checked by injection/recovery. Script 1 spectral autocorrelation is diagnostic only; it does not define a production spectral covariance model.
 
 ## 10.3 Monte Carlo count is convergence-driven
 
@@ -1716,7 +1384,7 @@ These should be resolved using simulations, real diagnostic plots, and runtime b
 A target should not be treated as publication-ready merely because all scripts execute. The following should be true:
 
 - wavelength conventions are verified;
-- noise scale/covariance is validated;
+- noise-scale calibration has converged, and the diagonal spectral-noise assumption is stated explicitly;
 - empirical LSF/template compatibility is verified;
 - grid-edge warnings are resolved or understood;
 - velocity-grid convergence has been demonstrated;
