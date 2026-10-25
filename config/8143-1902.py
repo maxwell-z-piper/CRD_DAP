@@ -142,8 +142,8 @@ N_INCLINATION_PRIOR_DRAWS = 10000
 # =============================================================================
 
 # If None, derive empirically. Manual values may be supplied for testing only.
-BL_PSF_FWHM_ARCSEC = None
-RH3_PSF_FWHM_ARCSEC = None
+BL_PSF_FWHM_ARCSEC = 1.2
+RH3_PSF_FWHM_ARCSEC = 1.2
 
 LSF_MODE = "master_arc"  # baseline production mode
 LSF_MODEL_WAVELENGTH_ORDER = 2
@@ -467,10 +467,21 @@ RING_SPACE_ARCSEC = None
 RING_DELTA_FACTOR = 0.5  # delta = 0.5 * ring_space
 R_START_FWHM_FACTOR = 1.0
 
-# Initial 2sigma radii may be supplied from MaNGA but the production value is
-# intended to be updated from the preliminary single-component RH3 sigma map.
-R_2SIGMA_POS_INITIAL_ARCSEC = None
-R_2SIGMA_NEG_INITIAL_ARCSEC = None
+# User-supplied MaNGA measurements for Script 4 initialization. Use consistently
+# instrumentally corrected dispersions in km/s. POS/NEG identifies the two sides
+# of the signed major axis; both peak dispersions must be positive. The baseline
+# approximates the underlying component dispersion, not the blended peak.
+# These guide starting curves; they do not constrain the final KCWI amplitudes.
+# Fill these before running Script 4; Scripts 1-3 do not use them.
+MANGA_SIGMA_PEAK_POS_KMS = 181
+MANGA_SIGMA_PEAK_NEG_KMS = 185
+MANGA_SIGMA_BASE_KMS = 102
+
+# Positive projected major-axis distances from the adopted galaxy center, in
+# arcsec, for the corresponding dispersion peaks. No MaNGA map file is required
+# when these reviewed scalar measurements are supplied directly.
+R_2SIGMA_POS_INITIAL_ARCSEC = 3.5
+R_2SIGMA_NEG_INITIAL_ARCSEC = 3.5
 
 # Always support two radial-extent fits:
 #   1. snapped outer 2sigma radius;
@@ -478,7 +489,50 @@ R_2SIGMA_NEG_INITIAL_ARCSEC = None
 RUN_TWO_SIGMA_EXTENT_MODEL = True
 RUN_FULL_APERTURE_MODEL = True
 
-# No explicit smoothness regularization on ring velocities.
+# Script 04 fits nonnegative intrinsic speed magnitudes; A/B senses stay
+# opposite. This is a configurable search ceiling, not a physical galaxy limit.
+# Increasing it does not expand the saved Script 03 LOS likelihood grid.
+SCRIPT04_VROT_MAX_KMS = 400.0
+SCRIPT04_DISK_A_ROTATION_SIGN = None  # optional reviewed +1/-1 override
+
+# Measure BOTH candidate PSF profiles, inspect QA, then choose the profile on
+# the command line. Use the larger measured axis for the radial-node scale.
+SCRIPT04_PSF_STANDARD_CUBES = (
+    Path("/Users/maxpiper/KCWI_Data/redux/kr241226_00107_icubed.fits"),
+    Path("/Users/maxpiper/KCWI_Data/redux/kr241226_00108_icubed.fits"),
+    Path("/Users/maxpiper/KCWI_Data/redux/kr241226_00109_icubed.fits"),
+    Path("/Users/maxpiper/KCWI_Data/redux/kr241226_00110_icubed.fits"),
+)
+SCRIPT04_PSF_OBSERVED_RANGE_ANGSTROM = None  # None: observed RH3 continuum window
+SCRIPT04_PSF_CUTOUT_ARCSEC = 5.0
+SCRIPT04_PSF_KERNEL_RADIUS_ARCSEC = 8.0
+SCRIPT04_PSF_QUADRATURE = 5  # numerical pixel-integration resolution
+
+# Existing PyMorph/q0 information supplies hard inclination bounds. Select
+# a catalog HDU after verifying its photometric band; no band is assumed.
+# Reviewed explicit bounds/initializer can replace the catalog calculation.
+SCRIPT04_PYMORPH_HDU = 2
+SCRIPT04_INCLINATION_BOUNDS_DEG = None
+SCRIPT04_INCLINATION_INITIAL_DEG = None
+
+# The pilot tests C=lambda*A around 0.002 using speeds in km/s. The final C
+# is selected by the user after the 12-fit review; no automatic adoption.
+# Vtyp only labels A and lambda; C is kept fixed between radial extents.
+SCRIPT04_BASELINE_COEFFICIENT = 0.002
+SCRIPT04_VTYP_KMS = 200.0
+
+# Numerical search budgets, NOT extra scientific constraints. Broad population
+# exploration is followed by several derivative-free local optimizations.
+# Budget/convergence flags are saved; increase these if the fits have not settled.
+SCRIPT04_RANDOM_SEED = 20261024
+SCRIPT04_POPULATION_FACTOR = 6
+SCRIPT04_GLOBAL_ITERATIONS = 80
+SCRIPT04_LOCAL_STARTS = 4
+SCRIPT04_LOCAL_ITERATIONS = 400
+SCRIPT04_OPTIMIZER_TOLERANCE = 1e-5
+
+# Legacy setting retained for old consumers; Script 04 uses the explicit
+# reviewed smoothing selection file, and keeps an unpenalized control.
 ROTATION_CURVE_SMOOTHNESS_PENALTY = 0.0
 
 # Geometry bounds are expressed as configurable multiples of external/initial
