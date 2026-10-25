@@ -1,6 +1,6 @@
 # Science-driver scripts
 
-This directory contains the executable pipeline stages described in `../METHODS.md`. Scripts 1--3 are implemented; later stages are added sequentially as their helper functions are completed and tested.
+This directory contains the executable pipeline stages described in `../METHODS.md`. Scripts 1–4 are implemented; later stages are added sequentially as their helper functions are completed and tested.
 
 The drivers should intentionally stay compact. They should orchestrate work by calling thoroughly documented functions in `crd_utils` rather than containing large blocks of analysis logic themselves.
 
@@ -15,6 +15,19 @@ Science-driver sequence:
 06_fit_BL_two_component_populations.py
 07_uncertainties_and_final_maps.py
 ```
+
+## Script 04 workflow
+
+See [../SCRIPT04.md](../SCRIPT04.md) for complete commands. The driver exposes
+`--phase psf`, `calibrate`, `review`, `compare`, and `choose-model`. It reads the
+three explicit upstream run directories, preserving the original calibrated
+likelihoods. Standard-star profile, smoothing strength and final model require
+explicit choices. `--workers` parallelizes independent global fits;
+`--resume` reuses fingerprint-matching completed whole-fit checkpoints.
+
+The intrinsic speed ceiling is `SCRIPT04_VROT_MAX_KMS = 400.0`; changing it
+requires a new stage-04 output directory and does not expand Script 03's saved
+LOS grids. Script 04's search history is not a posterior/error-bar product.
 
 For the current Mac data, first build the red ZAP and blue science stacks and both noise
 ensembles using `/Users/maxpiper/CRD_DRP/noise/README.md`. Regenerate the red
