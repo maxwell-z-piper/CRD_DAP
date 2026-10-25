@@ -674,188 +674,177 @@ No spectral lag coefficients or dense covariance matrices enter the likelihood. 
 
 Script 3 writes one atomic checkpoint per completed bin and verifies configuration and noise-experiment hashes on resume. A fresh Script-2 run is required when changing the stacked science cube, atmospheric mask or mock ensemble. `--workers N` controls the expensive likelihood-grid process pool; the best-state residual calibration occurs within each completed bin. Checkpoints are deleted only after successful consolidation when the configured cleanup switch is enabled.
 
-# 7. Script 4 — global two-disk model
-
-## 7.1 Radial-node philosophy
-
-Adopt an XookSuut-style non-parametric concentric-ring parameterization rather than an in-house analytic rotation curve.
-
-Default radial choices:
-
-$$
-R_{\mathrm{start}}=1\times\mathrm{FWHM}_{\mathrm{PSF,RH3}},
-$$
-
-$$
-\mathrm{ring\_space}\approx\mathrm{FWHM}_{\mathrm{PSF,RH3}},
-$$
-
-$$
-\delta=0.5\,\mathrm{ring\_space}.
-$$
-
-The first free node is therefore one PSF FWHM from the center. Interior to the first node,
-
-$$
-V_{\mathrm{rot}}(0)=0
-$$
-
-and the rotation curve is linearly connected to
-
-$$
-V_{\mathrm{rot}}(R_{\mathrm{start}})=V_1.
-$$
-
-The nominal annuli with full width $2\delta$ do not overlap when $\delta=0.5\,\mathrm{ring\_space}$, but they should not be described as statistically independent because the PSF correlates neighboring spatial information.
-
-## 7.2 Two outer-radius analyses
-
-Always support two radial extents.
-
-### A. $2\sigma$-limited model
-
-Measure the positive- and negative-side $2\sigma$ peak radii from the preliminary RH3 single-component dispersion map, using the MaNGA values only as initial guidance.
-
-Adopt
-
-$$
-R_{2\sigma, \mathrm{adopted}} = \max(R_{2\sigma,+}, R_{2\sigma,-}).
-$$
-
-Snap it to the nearest allowed ring center:
-
-$$
-R_{\mathrm{final}} = R_{\mathrm{start}} + \mathrm{round} \left[ \frac{R_{2\sigma,\mathrm{adopted}}-R_{\mathrm{start}}} {\mathrm{ring\_space}} \right] \mathrm{ring\_space}.
-$$
-
-### B. Full-aperture model
-
-Extend the radial grid sufficiently far to include the maximum deprojected radius reached by valid KCWI PowerBin member spaxels, snapping consistently to the ring grid.
-
-The purpose is to test whether the lower-minority-fraction outer data remain consistent with the inner two-disk solution.
-
-### Interpretation
-
-Compare both fits over their common inner radial domain. If the inner rotation curves and global geometry are stable, the full-aperture solution can become the preferred result because it uses all available data. If the solutions disagree materially, the $2\sigma$-limited model becomes the safer fiducial solution and the full-aperture run is treated as a robustness test.
-
-The code should not silently decide based on an undocumented threshold. It should save both solutions and quantify their differences.
-
-## 7.3 Global parameter vector
-
-Baseline:
-
-$$
-\Theta=
-\{x_0,y_0,PA,i,V_{\mathrm{sys}},
-V_{A,1}\ldots V_{A,K},
-V_{B,1}\ldots V_{B,K}\}.
-$$
-
-Both disks share center, PA, inclination, and systemic velocity initially. They have independent non-parametric ring velocities.
-
-No explicit smoothness penalty is imposed on the ring velocities in the baseline model.
-
-## 7.4 Disk A/B identity convention
-
-Avoid “dominant disk” language because dominance can change with radius and wavelength.
-
-Adopt a reproducible signed major-axis coordinate. Orient the 180°-degenerate PA axis so that increasing signed coordinate follows a documented image-coordinate convention. Walking across the IFU from the negative to positive side:
-
-- Disk A is the outer-branch velocity component encountered first on the reference side;
-- Disk B is its counter-rotating counterpart, commonly associated with the inner branch.
-
-If both branches are present at the outermost reference position, use the branch whose velocity sign matches the preliminary outer single-component RH3 velocity. If the assignment remains ambiguous, flag it for human inspection rather than silently guessing.
-
-This convention must remain fixed across RH3, BL, maps, tables, and reruns.
-
-## 7.5 Initial inclination and geometry constraints
-
-Use PyMorph disk axis ratio
-
-$$
-q=b/a
-$$
-
-and its uncertainty to derive an inclination distribution through
-
-$$
-\cos^2 i=\frac{q^2-q_0^2}{1-q_0^2},
-$$
-
-where $q_0$ is an assumed intrinsic disk thickness with its own uncertainty.
-
-PyMorph does not directly provide the final inclination uncertainty; that uncertainty is propagated from $q$, $q_0$, and their adopted distributions.
-
-Useful PyMorph quantities include disk axis ratio, disk PA, fitted disk center, and their fit errors. The photometric PA is mainly a cross-check because the stellar kinematic PA from `fit_kinematic_pa` is the primary orientation initializer.
-
-The global parameters have sensible bounds/priors:
-
-- $PA$ informed by the `fit_kinematic_pa` 1σ error;
-- $i$ informed by the PyMorph-derived distribution;
-- $x_0,y_0$ constrained around the KCWI continuum/photometric center;
-- $V_{\mathrm{sys}}$ free within a generous range around the preliminary RH3 estimate.
-
-`fit_kinematic_pa` need not provide a formal $V_{\mathrm{sys}}$ error; Script 7 will determine the uncertainty through the global-model realization ensemble.
-
-## 7.6 Model projection
-
-For a sky position, transform to disk-plane radius $R$ and azimuth $\theta$, linearly interpolate the non-parametric rotation curve, and project
-
-$$
-V_{\mathrm{LOS}}=V_{\mathrm{sys}}+V_{\mathrm{rot}}(R)\sin i\cos\theta.
-$$
-
-Disk A and B use their own $V_{\mathrm{rot}}(R)$ curves with opposite rotation senses.
-
-## 7.7 Bin-integrated model velocities
-
-Do not blindly evaluate only at the PowerBin centroid.
-
-For member spaxels $p$ in bin $i$, compute a flux-weighted mean model velocity
-
-$$
-\bar V_i=\frac{\sum_p I_pV_p}{\sum_p I_p},
-$$
-
-and model-predicted unresolved shear
-
-$$
-\sigma_{\mathrm{shear},i}^2=\frac{\sum_p I_p(V_p-\bar V_i)^2}{\sum_p I_p}.
-$$
-
-PSF effects should be included in the spatial weighting when required. The centroid-only approximation may still be used if diagnostics demonstrate that its difference from the bin-integrated prediction is negligible.
-
-## 7.8 Global objective
-
-For trial $\Theta$, predict bin-integrated velocities
-
-$$
-V_{A,i}(\Theta),\qquad V_{B,i}(\Theta).
-$$
-
-Evaluate/interpolate the RH3 profile-likelihood cube at those velocities and profile over the local RH3 fraction:
-
-$$
-q_i(\Theta)=\min_{f_{A,i}}\Delta\chi_i^2\left[V_{A,i}(\Theta),V_{B,i}(\Theta),f_{A,i}\right].
-$$
-
-Then
-
-$$
-Q(\Theta)=\sum_i q_i(\Theta).
-$$
-
-Minimize or sample the global objective while preserving the parameter history.
-
-## 7.9 Geometry robustness
-
-The baseline shared geometry is intentionally conservative. Later robustness tests should allow limited alternatives such as
-
-$$
-PA_A\ne PA_B
-$$
-
-if scientifically justified, without making the baseline model unnecessarily underconstrained.
+# 7. Script 4 — coherent two-disk model
+
+The implemented driver is scripts/04_fit_global_two_disk_model.py. See
+[SCRIPT04.md](SCRIPT04.md) for commands and the required human review steps.
+The design below supersedes earlier plans for this stage. It fits the saved
+Script-3 spectral likelihoods; it does not call XookSuut, refit pPXF, or produce
+posterior samples.
+
+## 7.1 Coordinates, geometry and permanent disk labels
+
+Both disks share a fitted center, astronomical PA (east of north), inclination,
+and systemic velocity. Each has its own nonnegative intrinsic radial speed
+magnitudes. Their rotation signs remain opposite and fixed at every radius.
+The configurable numerical ceiling is initially 400 km/s per disk; it is not a
+physical maximum or the same quantity as the saved LOS velocity-grid bound.
+
+The permanent A convention refers to the outer branch on the negative signed
+major-axis side. Its provisional sign follows the outermost reference bin's
+single-component velocity and is flagged for review. An explicit reviewed sign
+can replace it. Local light dominance never reassigns A/B labels.
+
+Existing center, PA and systemic-velocity ranges are hard bounds. Inclination
+bounds come from a deliberately selected PyMorph disk-axis-ratio table and the
+existing q/q0 propagation, or explicit reviewed inclination inputs. The catalog
+table/band is not silently selected. The inherited q/q0 sampler uses Gaussian
+draws with physical clipping, which is recorded in provenance. These bounds are
+not new posterior measurements.
+
+## 7.2 Fixed radial grids and whole-bin domains
+
+The first free node is one adopted RH3 PSF FWHM from the center. Default node
+spacing is that FWHM, with nominal annulus half-width half the spacing. Set
+U(0)=0 and interpolate linearly through the free nodes. Hold the last-node
+speed constant over outer padding; do not create an unmeasured extra node.
+
+The restricted domain starts from the larger of the two user-supplied MaNGA
+dispersion-peak distances, snapped to the nearest node. Include complete bins
+touching the outer annulus, then extend nodes outward to cover those complete
+bins. The full domain includes every upstream bin and rounds node coverage
+outward. Membership, node dimension and reference geometry are fixed before
+optimization. Changing trial geometry cannot improve a score by dropping bins.
+The actual restricted extent may exceed its nominal edge because of a large
+crossing bin.
+
+MaNGA peak and baseline dispersions give the equal-light initial LOS speed
+sqrt(sigma_peak^2 - sigma_base^2), or half the inferred disk separation.
+Correct by sin(i) for an intrinsic-speed seed. Vary starting shapes, amplitudes,
+A/B asymmetries and geometry; these seeds add no likelihood term.
+
+## 7.3 Measured stellar PSF and fixed light proxy
+
+Fit both Gaussian and Moffat profiles to Feige 24 continuum images in the RH3
+continuum interval, integrating over native rectangular KCWI pixels. The user
+inspects residuals and profiles before choosing a candidate. Rotate the
+pixel-integrated profiles into the science orientation and average unit-flux
+kernels. The median larger-axis effective FWHM sets the radial-node scale.
+
+This is an effective standard-star PSF transfer approximation. The standards
+are not contemporaneous with the science exposures, and the exact science
+stack/drizzle response is not replayed. Preserve those limitations as flags.
+Do not interpret this as a precise recovered science-stack PSF.
+
+Use the observed RH3 continuum as the fixed common light proxy I for both
+disks. Collapse the recorded Script-2 continuum window respecting the prepared
+masks; set negative continuum weights to zero as in Script 2. Preserve global
+relative brightness before convolution, rather than convolving independently
+normalized bin weights. No intrinsic or component-specific light model is fitted.
+
+For each projected velocity field V, predict first moments as:
+
+    I_model = P * I
+    V_model = [P * (I V)] / I_model
+
+Sum numerator and denominator through each entire bin aperture. For the
+no-PSF mode, use direct continuum-weighted aperture means. Save the corresponding
+second-moment velocity shear as a diagnostic; do not use it to replace pPXF's
+component dispersions. Report received light originating beyond the final node
+and flag spatial edges or missing light. No flux is invented beyond the image.
+
+The observed-light substitution follows a precedent in
+[DiGiorgio Zanger et al. (2024), section III, equations 4–6](https://arxiv.org/html/2407.11908v1#S3).
+It remains an approximation for these two-component spectra.
+
+## 7.4 Data objective and fraction profiling
+
+For each trial global model, evaluate every saved RH3 fraction plane by bilinear
+interpolation in V_A and V_B; only then minimize over fraction. Profiling corner
+minima first could mix incompatible fractions and artificially lower a score.
+Linear interpolation in fraction cannot create a lower minimum between the
+saved planes, so exact finer fraction fitting remains Script 05's task.
+
+Subtract each bin's independent minimum once, then sum the bin contributions:
+
+    Q_data = sum_i min_f Delta_chi2_i[V_A,i, V_B,i, f]
+
+No extrapolation or boundary clipping is allowed. A trial lacking a supported
+state for any selected bin is rejected in full; no bins disappear from its
+objective. Failed zero-weight interpolation corners do not invalidate an exact
+valid grid state.
+
+Read the final Script-3 scalar-calibrated chi-square surfaces unchanged. Do not
+apply either noise multiplier again. Both wavelength independence within bins
+and independence of bin contributions remain declared working approximations.
+The fitting objective is not a covariance-corrected likelihood.
+
+## 7.5 Experimental curvature penalty
+
+Following [Sellwood & Zánmar Sánchez (2010), Appendix A](https://arxiv.org/html/0912.5493v2#A1),
+apply squared second differences to the two independent radial speed curves:
+
+    P = lambda A sum_disks sum_j (U_j - 2 U_(j+1) + U_(j+2))^2
+    A = (Rmax / DeltaR)^4 / Vtyp^2
+    C = lambda A
+
+The first retained triple is (U1,U2,U3): omit the triple involving the imposed
+zero-speed origin. This central omission is our explicit choice, not a
+prescription attributed to the paper. Remaining terms can still influence U1.
+There are no artificial zero-slope endpoint conditions.
+
+C is fixed across extent comparisons; lambda_extent=C/A_extent. Keep common
+spacing and fixed Vtyp=200 km/s for reporting. Vtyp does not constrain the fitted
+speeds. C has units (km/s)^-2 for the implemented velocity units. Outer models
+can add penalty terms, so their total penalty need not equal the inner penalty.
+
+Optimize Q_data + P, retaining both parts separately. The unpenalized control
+uses C=0. These are regularized optimization solutions, not evidence values.
+
+## 7.6 Manual strength calibration and eight comparisons
+
+Before the final comparison, fit a full-aperture PSF-weighted control and eleven
+positive strengths C=0.002*2^j for j=-5 through +5. The literature-motivated
+starting value is a trial, not a validated strength for our data objective.
+
+The single-page two-row by six-column sheet shows curves, per-bin data-cost
+changes, geometry and changes, separate scores, flags, and descriptive RMS
+curve distances. The user can shift the range weaker/stronger or select a
+tested coefficient, including zero. Custom values must be fitted and reviewed.
+Record the selection rationale and freeze C before the final comparison.
+
+Run all combinations of restricted/full extent, PSF off/on, and curvature
+off/on: eight configurations. Matching pilot fits can be reused. Compare
+extent pairs on common inner bins and radii, report outer-bin costs separately,
+and retain parameter counts and mean per-bin costs. These means are descriptive;
+do not call them reduced chi-square or normalize the optimization objective by
+bin count. No automatic model preference is assigned.
+
+## 7.7 Search, provenance and downstream contract
+
+Use differential-evolution population exploration followed by multiple bounded
+Powell refinements of promising starts, evaluating the same objective throughout.
+Save alternative local solutions, search histories, convergence/boundary flags,
+geometry, radial curves, per-bin LOS velocities, coarse fractions and scores.
+Numerical search budgets are configurable and their exhaustion remains visible.
+Search trajectories are not posterior draws or rotation-curve error bars.
+
+Parallelize independent entire fits, with one numerical-library thread per
+worker. A completed fit is an atomic checkpoint. Verify code/input/config
+fingerprints before reuse. Changed science inputs or search settings require a
+new output directory; explicit upstream paths support transferred Windows runs
+without rewriting original provenance.
+
+The user selects one of the eight models explicitly. The selected-model product
+points to its joint geometry/curves and bin predictions for exact Script-05 pPXF
+refits. Final uncertainties are a later inference task, conditional on the
+declared noise and spatial-model assumptions. Successful software tests do not
+establish that the low-quality development data constrain a physical solution.
+
+References and reusable BibTeX are retained in references/SCRIPT04_REFERENCES.md
+and references/script04.bib. The ring framework is inspired by
+[XookSuut](https://arxiv.org/abs/2110.05095); our spectral-cube objective and
+optimizer are a custom implementation, not that package's Bayesian machinery.
 
 ---
 

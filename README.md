@@ -1,6 +1,14 @@
 # CRD_DAP
 
-CRD_DAP prepares the KCWI blue and red stacks, defines BL PowerBins, and fits RH3 profile-likelihood cubes. The target-specific inputs and science controls are in `config/8143-1902.py`; the full sequence is described in `METHODS.md` and `scripts/README.md`.
+CRD_DAP prepares the KCWI blue and red stacks, defines BL PowerBins, fits RH3 profile-likelihood cubes, and fits coherent two-disk models. Scripts 01–04 are implemented. The target-specific inputs and science controls are in `config/8143-1902.py`; the full sequence is described in `METHODS.md` and `scripts/README.md`.
+
+For Script 04, follow [SCRIPT04.md](SCRIPT04.md): measure and review the stellar
+PSF, run the twelve-fit smoothing calibration, select a strength, compare eight
+configurations, then select a model for later exact pPXF refinement. The
+intrinsic-speed ceiling is configurable and initially 400 km/s. Completed
+Script 01–03 products can be reused; no upstream rerun is needed just to add
+these stage-04 inputs. MaNGA measurement placeholders and the photometric
+inclination-table choice must be supplied before calibration.
 
 The current uncertainty path has two measured scalars for every actual bin. Script 2 coadds independently drawn reduced-exposure noise cubes through the fixed KcwiKit stack and compares each bin’s mock variance with its formal binned variance. Script 3 fits the complete RH3 likelihood grid once with that spatially corrected noise, estimates a robust residual multiplier from the exact best grid state, and rescales the saved noise and chi-square surface by that multiplier, including when it is below one. The fit assumes diagonal covariance between wavelength samples. Script-1 spectral correlation remains a diagnostic; likelihood intervals are conditional on the diagonal assumption.
 

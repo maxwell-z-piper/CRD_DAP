@@ -474,296 +474,85 @@ The difference in total scalar-calibrated diagonal chi-square between one- and t
 
 # Script 4 — radial geometry and global two-disk model
 
-## `xooksuut_radial_model.png`
-
-**Script:** 04  
-**Class:** major methods/publication figure
-
-### Purpose
-
-Displays the exact non-parametric radial-ring geometry used by the global two-disk model.
-
-### Must show
-
-- galaxy center;
-- signed \(PA_{\mathrm{kin}}\) axis;
-- projected ring ellipses;
-- \(R_{\mathrm{start}}\);
-- each ring center;
-- \(R_{2\sigma,+}\) and \(R_{2\sigma,-}\);
-- adopted \(R_{2\sigma,\mathrm{max}}\);
-- snapped \(R_{\mathrm{final}}\);
-- final annulus \(R_{\mathrm{final}}\pm\delta\);
-- PSF scale;
-- PowerBin footprint.
-
-### Mathematical definitions
-
-\[
-R_{\mathrm{start}}=\mathrm{FWHM}_{\mathrm{PSF}},
-\]
-
-\[
-\delta=0.5\,\mathrm{ring\_space},
-\]
-
-and the snapped outer-radius relation documented in `METHODS.md`.
-
-### Healthy result
-
-The radial nodes resolve the galaxy at approximately the delivered PSF scale and the final \(2\sigma\)-limited ring encloses the relevant two-component region without an obvious excessive gap.
-
----
-
-## `disk_label_convention.png`
-
-**Script:** 04  
-**Class:** critical bookkeeping QC + methods
-
-### Purpose
-
-Makes Disk A/B identity reproducible and visually auditable.
-
-### Shows
-
-- oriented signed major-axis line;
-- negative and positive direction labels;
-- reference outer spatial bin/region;
-- preliminary outer single-component velocity sign;
-- branch assigned Disk A;
-- branch assigned Disk B.
-
-### Warning
-
-If component identity is ambiguous, the plot must display the `AMBIGUOUS_DISK_LABEL` state rather than drawing a confident assignment.
-
----
-
-## `ring_coverage.png`
-
-**Script:** 04  
-**Class:** QC
-
-### Purpose
-
-Quantifies how strongly each non-parametric ring is actually constrained by usable spatial data.
-
-### Possible panels
-
-- number of PowerBins contributing by radius;
-- azimuthal coverage fraction;
-- weighted coverage metric.
-
-### Warning signs
-
-A fitted ring controlled by only one tiny spatial region or strongly one-sided azimuthal sampling.
-
-### Action
-
-Flag `POOR_RING_COVERAGE`; consider coarser ring spacing or report the affected ring as weakly constrained rather than smoothing it silently.
-
----
-
-## `global_model_VA.png` / `global_model_VB.png`
-
-**Script:** 04  
-**Class:** science diagnostic
-
-Maps the bin-integrated model-predicted Disk A and B velocities at the best global \(\Theta\).
-
----
-
-## `global_model_residuals_A.png` / `global_model_residuals_B.png`
-
-**Script:** 04  
-**Class:** critical QC
-
-### Quantity
-
-Difference between the representative selected spectral solution and the global model prediction, in km/s, using a precisely documented definition of the selected per-bin velocity.
-
-### Warning signs
-
-Coherent residual structures, bars/noncircular motions, or one side of the galaxy consistently offset.
-
----
-
-## `global_normalized_residuals.png`
-
-**Script:** 04  
-**Class:** QC
-
-Normalizes residuals by an appropriate velocity uncertainty/likelihood scale where available. This highlights statistically meaningful deviations that may be visually small in km/s.
-
----
-
-## `best_theta_rotationcurves.png`
-
-**Script:** 04  
-**Class:** major science/publication figure
-
-### Purpose
-
-Shows the final non-parametric Disk A and Disk B rotation curves.
-
-### Display
-
-- ring-node velocities as explicit markers;
-- linear interpolation between nodes;
-- optional uncertainty bands once Script 7 is complete;
-- \(R_{\mathrm{start}}\), \(R_{2\sigma}\), and radial-limit markers.
-
-### Important
-
-Do not draw an analytic smooth fit that was not used by the inference.
-
----
-
-## `Q_optimization_history.png`
-
-**Script:** 04  
-**Class:** optimizer QC
-
-### Purpose
-
-Shows the history of
-
-\[
-Q(\Theta)=\sum_iq_i(\Theta)
-\]
-
-across optimizer evaluations/iterations.
-
-### Recommended curves
-
-- raw \(Q\) for every evaluated state;
-- best-so-far \(Q\).
-
-### Healthy result
-
-Best-so-far curve approaches a plateau and later evaluations fail to find substantial improvements.
-
-### Warning signs
-
-Continual late improvements, repeated large jumps between basins, or termination immediately after a new best solution.
-
----
-
-## `geometry_initial_vs_final.png`
-
-**Script:** 04  
-**Class:** QC
-
-Compares initial and fitted values of center, PA, inclination, and systemic velocity, including external uncertainty ranges/bounds.
-
-Large movement to a hard prior/boundary should be obvious.
-
----
-
-## `intra_bin_velocity_shear.png`
-
-**Script:** 04  
-**Class:** critical QC
-
-### Quantity
-
-\[
-\sigma_{\mathrm{shear},i}^2
-=
-\frac{\sum_p I_p(V_p-\bar V_i)^2}{\sum_pI_p}.
-\]
-
-### Purpose
-
-Identifies PowerBins whose internal velocity gradient can broaden the integrated spectrum and mimic intrinsic stellar dispersion.
-
-### Warning signs
-
-Shear comparable to the precision of \(\sigma_A\) or \(\sigma_B\).
-
-### Action
-
-Flag `HIGH_BIN_SHEAR` and consider explicit forward-model treatment or rebinning validation.
-
----
-
-## `centroid_vs_bin_integrated_velocity.png`
-
-**Script:** 04  
-**Class:** approximation-validation QC
-
-### Quantity
-
-\[
-\Delta V_i
-=
-V_{i,\mathrm{bin-integrated}}
--
-V_{i,\mathrm{centroid}}.
-\]
-
-### Purpose
-
-Directly demonstrates whether the simpler centroid approximation would have been safe.
-
-### Healthy result
-
-Differences are much smaller than the kinematic uncertainties for nearly all bins.
-
----
-
-# Radial-extent comparison diagnostics
-
-## `radial_extent_bin_usage.png`
-
-**Script:** 04  
-**Class:** methods/QC
-
-Shows which PowerBins enter the \(2\sigma\)-limited model and which additional bins enter the full-aperture model.
-
----
-
-## `radial_extent_rotationcurve_comparison.png`
-
-**Script:** 04 / finalized 07  
-**Class:** major robustness/publication candidate
-
-### Purpose
-
-Compares
-
-\[
-V_A^{2\sigma}(R),\quad V_A^{\mathrm{full}}(R)
-\]
-
-and the same for Disk B.
-
-### Critical comparison region
-
-The shared inner radial domain. The outer extension naturally exists only for the full-aperture model.
-
-### Interpretation
-
-- close overlap: outer low-minority-fraction data are consistent and may safely help constrain \(\Theta\);
-- large inner shifts: outer bins are influencing the decomposition enough that the \(2\sigma\)-limited solution should likely remain fiducial.
-
----
-
-## `radial_extent_geometry_comparison.png`
-
-**Script:** 04  
-**Class:** robustness QC
-
-Compares \(x_0,y_0,PA,i,V_{\mathrm{sys}}\) between the two radial-extent fits, with uncertainties when available.
-
----
-
-## `radial_extent_velocity_difference.png`
-
-**Script:** 04  
-**Class:** robustness QC
-
-PowerBin map of the difference between velocities predicted by the \(2\sigma\)-limited and full-aperture best global solutions over their common domain.
+The implemented products below replace the earlier proposed Script-4 figure
+list. Commands and review gates are documented in [SCRIPT04.md](SCRIPT04.md).
+All figures have PNG previews and single-page PDF companions.
+
+## stellar_PSF_QA.pdf
+
+Each Feige 24 exposure has a continuum image, Gaussian and Moffat residual maps,
+and angular light profiles. Map axes are native angular coordinates, respecting
+rectangular pixels. Check centering, residual structure, flags and differences
+between exposures. RMS is descriptive, not a formal Gaussian/Moffat test.
+Profile selection remains explicit. The transferred PSF does not replay the
+exact science-stack drizzle response, and standards were taken hours earlier.
+
+## full_radial_geometry.pdf and two_sigma_radial_geometry.pdf
+
+The continuum map shows reference ring ellipses and center. The companion
+histogram shows selected member-spaxel radii and records bin count, extent and
+the provisional disk-label source. Check node density relative to the measured
+larger-axis FWHM and inspect boundary-crossing bins. Membership remains fixed
+during optimization.
+
+## smoothing_calibration_2x6.pdf
+
+One page, exactly two rows of six entries: control plus eleven ordered strengths.
+Each entry contains:
+
+- signed A/B intrinsic rotation curves, with faint control curves;
+- a per-bin data-cost-change map relative to that same control;
+- actual geometry, changes from control, C, lambda, Q_data, penalty, RMS curve
+  distances and fit flags.
+
+All maps share a zero-centered diverging color scale: blue improves the data
+fit, red worsens it. The color scale never includes the smoothing penalty.
+Adjacent-strength RMS changes appear in a strip above the entries. Curve
+distances exclude the imposed central anchor and are descriptive, not errors,
+significance levels or quality ranks. Open the PDF and zoom to inspect text.
+
+The control should have the lowest unpenalized data cost if the searches have
+found their appropriate minima. CONTROL_SEARCH_NEEDS_REFINEMENT means a
+penalized search found a better data score; compare optimizer alternatives and
+budgets before interpreting the sweep. No best strength is automatically chosen.
+
+## model_diagnostics.pdf for each of the eight named models
+
+The actual filenames are, for example, full_psf1_smooth1_diagnostics.pdf.
+Six panels show radial curves, predicted A/B LOS maps, coarse profiled fraction,
+per-bin data Delta-chi-square from independent minima, and search history.
+Search time versus objective is numerical progress, not posterior sampling.
+The title retains convergence, boundary, PSF-transfer and coverage flags.
+
+## extent_comparison.pdf
+
+Four panels pair restricted/full curves for each PSF/regularity setting. Compare
+common radii before assessing outer behavior. The accompanying
+products/eight_model_comparison.json reports common-inner-bin data sums and
+means, separate outer contributions, parameter counts and geometry changes.
+Different bin sets' total scores cannot rank model evidence. No uncertainty
+bands or automatic preferred model are implied.
+
+## Machine-readable products and logs
+
+Each fits/model_name.json retains the joint parameter vector, radial grid,
+per-bin data scores, coarse fractions, shear, radial-padding light fractions,
+alternative refined starts, objective history and convergence flags. Prediction
+ECSV tables are saved in products/. A selected_global_model.json is written only
+after explicit model selection, identifying the Script-05 input velocities.
+
+The main log summarizes inputs, dimensions and completed fits. Separate
+logs/model_name.progress.log files record live search data cost, penalty,
+geometry and elapsed time. The scientific input fingerprint, config snapshot,
+PSF choice, strength sweeps and selection rationale are retained. Resume reuses
+only matching completed whole fits.
+
+ROTATION_SPEED_CEILING identifies an intrinsic speed near the configurable
+400 km/s maximum; ROTATION_SPEED_BOUNDARY also includes zero. GEOMETRY_BOUNDARY
+identifies a geometry limit. Non-convergence flags do not invalidate the software
+workflow, but they prevent claiming a settled optimum. PSF edge and outer
+constant-speed padding diagnostics describe where the spatial approximation
+matters; they do not create additional data or remove those bins.
 
 ---
 
