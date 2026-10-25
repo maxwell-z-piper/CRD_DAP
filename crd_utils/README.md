@@ -20,6 +20,10 @@ Current module responsibilities:
 - `model_selection.py` — one/two-component statistic and mock-calibrated false-positive/recovery metrics.
 - `geometry.py` — PyMorph-derived inclination, coordinate transforms, signed PA convention.
 - `disk_model.py` — XookSuut-style ring grid, interpolation, projected velocities, bin-integrated shear.
+- `global_disk.py` — Script-04 fixed-sense two-disk projection, per-fraction likelihood interpolation, curvature and global search.
+- `global_disk_io.py` — portable upstream contracts, whole-bin domains, reviewed geometry inputs and atomic products.
+- `stellar_psf.py` — native-pixel-integrated Gaussian/Moffat standard fits, effective PSF transfer and stellar QA.
+- `global_disk_plotting.py` — the 2×6 strength-review sheet, geometry and eight-model comparison figures.
 - `populations.py` — BL two-component stellar-population fits and SSP summaries.
 - `sampling.py` — RH3-likelihood-weighted sampling, ESS, convergence, eventual joint-minimum refinement.
 - `validation.py` — hard scientific checks and grid/boundary validation.
@@ -27,4 +31,4 @@ Current module responsibilities:
 - `runtime.py` — timings, wall-time forecasting, later multicore benchmark support.
 - `plotting.py` — all diagnostic/publication plot implementations; every nontrivial plot must be documented in `../DIAGNOSTICS.md`.
 
-Script-1 functionality is now implemented in `io.py`, `cube_utils.py`, `noise.py`, `psf_lsf.py`, `validation.py`, and `plotting.py`. Modules supporting later science stages may still contain explicit `NotImplementedError` placeholders; those are intentionally filled only when the corresponding driver script is implemented and tested.
+Script-1 functionality is implemented in `io.py`, `cube_utils.py`, `noise.py`, `psf_lsf.py`, `validation.py`, and `plotting.py`. Script 04 uses the `global_disk*` modules; the older `disk_model.py` primitives retain their original contracts for existing callers. Other later-stage modules may still contain explicit `NotImplementedError` placeholders, filled only when their driver is implemented and tested.
