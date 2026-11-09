@@ -500,6 +500,8 @@ SCRIPT04_POPULATION_FACTOR = 6
 SCRIPT04_GLOBAL_ITERATIONS = 80
 SCRIPT04_LOCAL_STARTS = 4
 SCRIPT04_LOCAL_ITERATIONS = 400
+# Revisit fits beaten by saved states from the same extent/PSF/node grid.
+SCRIPT04_SHARED_REFINEMENT_PASSES = 3  # numerical budget; incomplete checks are flagged
 SCRIPT04_OPTIMIZER_TOLERANCE = 1e-5
 
 # Legacy setting retained for old consumers; Script 04 uses the explicit
@@ -519,9 +521,10 @@ INCLINATION_PRIOR_SIGMA_FACTOR = 2.0
 
 GRID_EDGE_WARNING_CELLS = 2
 
-# Fine local fraction refinement around the coarse RH3 solution.
+# Full Script 05 fraction profile from 0.01 through 0.99.
+# MANGA_SIGMA_BASE_KMS supplies both initial dispersions.
 RH3_FA_FINE_STEP = 0.01
-RH3_FA_FINE_HALF_WIDTH = 0.10
+RH3_FA_FINE_HALF_WIDTH = 0.10  # legacy field from the superseded local scan
 
 # Runtime estimate printing for expensive refinement stages.
 PRINT_RUNTIME_ESTIMATES = True

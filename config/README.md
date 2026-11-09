@@ -29,7 +29,7 @@ Scripts 01-03 do not consume these fields, so adding them does not change their
 scientific calculations. Whole-config hashes will nevertheless change; do not
 edit completed runs' saved config snapshots to match the new file.
 
-Script 04's commands and review sequence are in [../SCRIPT04.md](../SCRIPT04.md).
+Script 04's commands and review sequence are in [../PIPELINE_CALLS.md](../PIPELINE_CALLS.md).
 `SCRIPT04_VROT_MAX_KMS = 400.0` is an intrinsic speed ceiling; a ceiling flag can
 motivate changing it to 600 and rerunning this stage in a new output directory.
 The saved Script-3 LOS grids still restrict supported predictions.
@@ -39,3 +39,8 @@ supply explicit inclination bounds and initializer. No catalog band is silently
 selected. The PSF profile is also an explicit command-line choice after viewing
 the standard-star QA. Numerical search budgets are exposed separately from the
 scientific bounds and selected regularity strength.
+
+
+Script 05 starts both dispersions at `MANGA_SIGMA_BASE_KMS` and optimizes them independently at each of the 99 RH3 fractions. It inherits the dispersion bounds and spectral settings from the saved Script 03 run. The baseline must fall within those bounds. Use `RH3_FA_FINE_STEP = 0.01` for the agreed full scan.
+
+The [per-target checklist](../CRD_DAP.md#per-target-config-checklist) separates target measurements and observation files from shared setup and analysis settings.
