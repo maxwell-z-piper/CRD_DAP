@@ -1,11 +1,11 @@
 # CRD_DAP pipeline calls
 
-Quick reference for **DAP Scripts 01–04 only**. Mac / Bash calls are the default;
+Quick reference for **DAP Scripts 01–05**. Mac / Bash calls are the default;
 Windows / PowerShell equivalents are in their own section.
 
 Scripts 01–03 follow the DAP handoff calls at the bottom of
 [INSTRUCTIONS_COMPLETE_NOISE_REDUCTION.md](/Users/maxpiper/CRD_DRP/INSTRUCTIONS_COMPLETE_NOISE_REDUCTION.md).
-Script 04 follows [SCRIPT04.md](/Users/maxpiper/CRD_DAP/SCRIPT04.md).
+Script 04 requires a reviewed PSF, smoothing strength and model selection before Script 05 can run.
 Update paths/run names for another target or reduction. Use fresh run names
 when starting a new run.
 
@@ -28,6 +28,7 @@ export SCRIPT1_RUN="$DAP/runs/$S01_NAME"
 export SCRIPT2_RUN="$DAP/runs/$S02_NAME"
 export SCRIPT3_RUN="$DAP/runs/$S03_NAME"
 export SCRIPT04_DIR="$DAP/runs/8143-1902_global04"
+export SCRIPT05_DIR="$DAP/runs/8143-1902_exact05"
 
 cd "$DAP"
 ```
@@ -78,8 +79,12 @@ Adding stage-04 inputs alone does not require rerunning Scripts 01–03.
   --config "$CONFIG" --output-dir "$SCRIPT04_DIR" --phase psf
 ```
 
-Open `$SCRIPT04_DIR/figures/stellar_PSF_QA.pdf`, then set your reviewed
-profile. `moffat` below is an example; `gaussian` is also available.
+Open `$SCRIPT04_DIR/figures/stellar_PSF_QA.pdf`. This 4x4 panel plots the normalized stellar light of the actual exposure, the data - a `gaussian` fit, the data - a `moffat` fit, and then those residuals against their radius. We are most interested in the residual plots and look for four things: 
+One   - Is there unrecognizable structure in the residuals? If so, this indicates the model has the wrong shape, width, or centering. 
+Two   - Does the model reduce the residuals both in the center and the surrounding light?
+Three - Are the results consistent across exposures?
+Four  - Are the fitted parameters being sensible and converging?
+Which ever model answers 'yes' to the above questions is the one you should choose. Note, it has been shown that the `moffat` model slightly out-performs the `gaussian` model for KCWI. Below is an example of choosing `moffat`.
 
 ```bash
 export PSF_PROFILE=moffat
@@ -94,14 +99,22 @@ export PSF_PROFILE=moffat
   --phase calibrate --workers 4
 ```
 
+Note - you can resume this fitting with the `--resume` arguemnt. If you pause this stage and would like to start it anew, you must delete all entries in "$SCRIPT04_DIR/runs/fits/", then rerun the above command.
+
 **C. Inspect `figures/smoothing_calibration_2x6.pdf`, then review/select strength.**
 
 ```bash
 "$DAP_PY" "$DAP/scripts/04_fit_global_two_disk_model.py" \
   --config "$CONFIG" --output-dir "$SCRIPT04_DIR" --script1-run "$SCRIPT1_RUN" \
-  --script2-run "$SCRIPT2_RUN" --script3-run "$SCRIPT3_RUN" --psf-profile "$PSF_PROFILE" --phase review \
-  --interactive --workers 4 --resume
+  --script2-run "$SCRIPT2_RUN" --script3-run "$SCRIPT3_RUN" --psf-profile "$PSF_PROFILE" --phase review --interactive --workers 4 --resume
 ```
+
+This step will give you three options to choose a smoothing model coefficient:
+1 - this will redo the 12 fits with a range of `weaker` coefficients
+2 - this will redo the 12 fits with a range of `stronger` coefficients
+3 - this will allow you to choose which of the tested coefficients to use for this stage of the pipeline.
+
+Note that you can select `0` to use the control fit that does not have any smoothing coefficient, if desired.
 
 **D. After selecting strength, run the eight-model comparison.**
 
@@ -111,6 +124,8 @@ export PSF_PROFILE=moffat
   --script2-run "$SCRIPT2_RUN" --script3-run "$SCRIPT3_RUN" --psf-profile "$PSF_PROFILE" \
   --phase compare --workers 4 --resume
 ```
+
+This step runs the eight different models given the smoothing coefficient chosen earlier. Those eight models are: smoothing on OR smoothing off: fit on full aperture / restricted up to 2-sigma region, PSF off/on. This creates `$SCRIPT04_DIR/figures/radial_extent_rotationcurve_comparison.pdf`, where you can compare all eight models to choose for the next step.
 
 **E. Inspect the comparisons and choose a model.** The name below is an example.
 
@@ -125,6 +140,19 @@ export PSF_PROFILE=moffat
 The choices are `{two_sigma,full}_psf{0,1}_smooth{0,1}`. Selection writes
 `products/selected_global_model.json`. The PSF, strength and model examples here
 are not automatic scientific choices.
+
+### 05 — Exact RH3 refits and kinematic maps
+
+Use the selected model saved by Script 04. Keep the same terminal available if you want to review failed fractions as they occur.
+
+```bash
+"$DAP_PY" "$DAP/scripts/05_extract_global_RH3_solution.py" \
+  --config "$CONFIG" --script4-run "$SCRIPT04_DIR" --output-dir "$SCRIPT05_DIR" \
+  --script1-run "$SCRIPT1_RUN" --script2-run "$SCRIPT2_RUN" --script3-run "$SCRIPT3_RUN" \
+  --workers 4
+```
+
+Append `--resume` to this call after interruption. Use `--non-interactive` for unattended initial scans. When a run exits with status 2, remove `--non-interactive` and resume in a terminal to review the saved decisions.
 
 ## Windows: PowerShell
 
@@ -148,6 +176,7 @@ $Script1Run = "$Dap/runs/$S01Name"
 $Script2Run = "$Dap/runs/$S02Name"
 $Script3Run = "$Dap/runs/$S03Name"
 $Script04Dir = "$Dap/runs/8143-1902_global04"
+$Script05Dir = "$Dap/runs/8143-1902_exact05"
 
 Set-Location $Dap
 ```
@@ -220,6 +249,8 @@ conda run --no-capture-output -n crd_dap python "$Dap/scripts/04_fit_global_two_
   --interactive --workers 4 --resume
 ```
 
+The interactive menu offers **1: weaker range**, **2: stronger range**, or **3: adopt a tested coefficient**. Weaker/stronger divides/multiplies the current baseline by four and launches another twelve-entry comparison; inspect its new sheet and run this review command again. Overlapping coefficients are reused, subject to the shared-candidate refinement check. Selecting a coefficient does not automatically launch the eight-model comparison.
+
 **D. After selecting strength, run the eight-model comparison.**
 
 ```powershell
@@ -239,6 +270,24 @@ conda run --no-capture-output -n crd_dap python "$Dap/scripts/04_fit_global_two_
   --note "Replace with your reason for choosing this model"
 ```
 
+### 05 — Exact RH3 refits and kinematic maps
+
+Run with the activated environment in a terminal for interactive retries.
+
+```powershell
+conda activate crd_dap
+python "$Dap/scripts/05_extract_global_RH3_solution.py" `
+  --config "$Config" --script4-run "$Script04Dir" --output-dir "$Script05Dir" `
+  --script1-run "$Script1Run" --script2-run "$Script2Run" --script3-run "$Script3Run" `
+  --workers 4
+```
+
+Use the same output directory with `--resume` to continue saved work.
+
+## Updated Script 04 search
+
+The shared-start refinement and log-header update changes the search fingerprint. Use a fresh Script 04 output directory, run its PSF phase and repeat the Script 04 commands above; the existing Scripts 01-03 runs remain the inputs. Keep old runs intact and do not edit their fingerprints. Within the new run, `--resume` reuses matching completed fits while allowing additional refinement when a newly available compatible state scores better. `SCRIPT04_SHARED_REFINEMENT_PASSES` is a config numerical budget (default 3); unfinished checks are flagged. Candidate sharing never crosses radial-domain/PSF/node-grid boundaries.
+
 ## Available arguments
 
 | Script | Arguments |
@@ -247,6 +296,7 @@ conda run --no-capture-output -n crd_dap python "$Dap/scripts/04_fit_global_two_
 | 02 | Required: `--config`. Optional: `--script1-run`, `--run-name`. Explicit upstream paths are recommended. |
 | 03 | Required: `--config`. Optional: `--script1-run`, `--script2-run`, `--run-name`, `--workers`, `--resume`. |
 | 04 | Required: `--config`, `--output-dir`. Options: `--phase`, `--script1-run`, `--script2-run`, `--script3-run`, `--psf-profile`, `--workers`, `--resume`, `--baseline-coefficient`, `--coefficient`, `--interactive`, `--model-name`, `--note`. |
+| 05 | Required `--config`, `--script4-run`, `--output-dir`. Optional `--script1-run`, `--script2-run`, `--script3-run`, `--workers`, `--resume`, `--non-interactive`. Upstream overrides are useful after relocating runs. |
 
 - **Script 04 phases:** `psf`, `calibrate`, `review`, `compare`, `choose-model`.
   Except for `psf`, all three upstream-run paths and `--psf-profile` are currently
@@ -272,4 +322,4 @@ conda run --no-capture-output -n crd_dap python "$Dap/scripts/04_fit_global_two_
   target config, not additional command-line flags.
 - **Full help:** append `--help` to the relevant script call.
 
-Scripts 05–07 are not implemented yet; add their calls here as they become available.
+The Script 05 handoff is `products/RH3_global_kinematics.ecsv` and the associated per-bin fraction profiles. Scripts 06–07 are planned.

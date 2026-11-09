@@ -474,298 +474,77 @@ The difference in total scalar-calibrated diagonal chi-square between one- and t
 
 # Script 4 — radial geometry and global two-disk model
 
-The implemented products below replace the earlier proposed Script-4 figure
-list. Commands and review gates are documented in [SCRIPT04.md](SCRIPT04.md).
-All figures have PNG previews and single-page PDF companions.
+The implemented products below replace the earlier proposed Script-4 figure list. Commands and review gates are documented in [PIPELINE_CALLS.md](PIPELINE_CALLS.md). All figures have PNG previews and single-page PDF companions.
 
 ## stellar_PSF_QA.pdf
 
-Each Feige 24 exposure has a continuum image, Gaussian and Moffat residual maps,
-and angular light profiles. Map axes are native angular coordinates, respecting
-rectangular pixels. Check centering, residual structure, flags and differences
-between exposures. RMS is descriptive, not a formal Gaussian/Moffat test.
-Profile selection remains explicit. The transferred PSF does not replay the
-exact science-stack drizzle response, and standards were taken hours earlier.
+Each Feige 24 exposure has a continuum image, Gaussian and Moffat residual maps, and angular light profiles. Map axes are native angular coordinates, respecting rectangular pixels. Check centering, residual structure, flags and differences between exposures. RMS is descriptive, not a formal Gaussian/Moffat test. Profile selection remains explicit. The transferred PSF does not replay the exact science-stack drizzle response, and standards were taken hours earlier.
 
 ## full_radial_geometry.pdf and two_sigma_radial_geometry.pdf
 
-The continuum map shows reference ring ellipses and center. The companion
-histogram shows selected member-spaxel radii and records bin count, extent and
-the provisional disk-label source. Check node density relative to the measured
-larger-axis FWHM and inspect boundary-crossing bins. Membership remains fixed
-during optimization.
+Zero-weight continuum pixels, including unused rectangular cube padding, are hidden. The old solid dark rectangle represented the entire plotted array, not an independently measured IFU/slicer outline. Positive continuum samples and rings use the same unmodified sky coordinates, displayed north up and east left.
+
+The continuum map shows reference ring ellipses and center. The companion histogram shows selected member-spaxel radii and records bin count, extent and the provisional disk-label source. Check node density relative to the measured larger-axis FWHM and inspect boundary-crossing bins. Membership remains fixed during optimization.
 
 ## smoothing_calibration_2x6.pdf
 
-One page, exactly two rows of six entries: control plus eleven ordered strengths.
-Each entry contains:
+One page, exactly two rows of six entries: control plus eleven ordered strengths. Each entry contains:
 
 - signed A/B intrinsic rotation curves, with faint control curves;
 - a per-bin data-cost-change map relative to that same control;
-- actual geometry, changes from control, C, lambda, Q_data, penalty, RMS curve
-  distances and fit flags.
+- actual geometry, changes from control, C, lambda, Q_data, penalty, RMS curve distances and fit flags.
 
-All maps share a zero-centered diverging color scale: blue improves the data
-fit, red worsens it. The color scale never includes the smoothing penalty.
-Adjacent-strength RMS changes appear in a strip above the entries. Curve
-distances exclude the imposed central anchor and are descriptive, not errors,
-significance levels or quality ranks. Open the PDF and zoom to inspect text.
+All maps share a zero-centered diverging color scale: blue improves the data fit, red worsens it. The color scale never includes the smoothing penalty. Adjacent-strength RMS changes appear in a strip above the entries. Curve distances exclude the imposed central anchor and are descriptive, not errors, significance levels or quality ranks. Open the PDF and zoom to inspect text.
 
-The control should have the lowest unpenalized data cost if the searches have
-found their appropriate minima. CONTROL_SEARCH_NEEDS_REFINEMENT means a
-penalized search found a better data score; compare optimizer alternatives and
-budgets before interpreting the sweep. No best strength is automatically chosen.
+The control should have the lowest unpenalized data cost if the searches have found their appropriate minima. CONTROL_SEARCH_NEEDS_REFINEMENT means a penalized search found a better data score; compare optimizer alternatives and budgets before interpreting the sweep. No best strength is automatically chosen.
 
 ## model_diagnostics.pdf for each of the eight named models
 
-The actual filenames are, for example, full_psf1_smooth1_diagnostics.pdf.
-Six panels show radial curves, predicted A/B LOS maps, coarse profiled fraction,
-per-bin data Delta-chi-square from independent minima, and search history.
-Search time versus objective is numerical progress, not posterior sampling.
-The title retains convergence, boundary, PSF-transfer and coverage flags.
+The actual filenames are, for example, full_psf1_smooth1_diagnostics.pdf. Six panels show radial curves, predicted A/B LOS maps, coarse profiled fraction, per-bin data Delta-chi-square from independent minima, and search history. Search time versus objective is numerical progress, not posterior sampling. The title retains convergence, boundary, PSF-transfer and coverage flags.
 
 ## extent_comparison.pdf
 
-Four panels pair restricted/full curves for each PSF/regularity setting. Compare
-common radii before assessing outer behavior. The accompanying
-products/eight_model_comparison.json reports common-inner-bin data sums and
-means, separate outer contributions, parameter counts and geometry changes.
-Different bin sets' total scores cannot rank model evidence. No uncertainty
-bands or automatic preferred model are implied.
+Four panels pair restricted/full curves for each PSF/regularity setting. Compare common radii before assessing outer behavior. The accompanying products/eight_model_comparison.json reports common-inner-bin data sums and means, separate outer contributions, parameter counts and geometry changes. Different bin sets' total scores cannot rank model evidence. No uncertainty bands or automatic preferred model are implied.
 
 ## Machine-readable products and logs
 
-Each fits/model_name.json retains the joint parameter vector, radial grid,
-per-bin data scores, coarse fractions, shear, radial-padding light fractions,
-alternative refined starts, objective history and convergence flags. Prediction
-ECSV tables are saved in products/. A selected_global_model.json is written only
-after explicit model selection, identifying the Script-05 input velocities.
+Each fits/model_name.json retains the joint parameter vector, radial grid, per-bin data scores, coarse fractions, shear, radial-padding light fractions, alternative refined starts, objective history and convergence flags. Prediction ECSV tables are saved in products/. A selected_global_model.json is written only after explicit model selection, identifying the Script-05 input velocities.
 
-The main log summarizes inputs, dimensions and completed fits. Separate
-logs/model_name.progress.log files record live search data cost, penalty,
-geometry and elapsed time. The scientific input fingerprint, config snapshot,
-PSF choice, strength sweeps and selection rationale are retained. Resume reuses
-only matching completed whole fits.
+The main log summarizes inputs, dimensions and completed fits. Separate logs/model_name.progress.log files record live search data cost, penalty, geometry and elapsed time. The scientific input fingerprint, config snapshot, PSF choice, strength sweeps and selection rationale are retained. Resume reuses only matching completed whole fits.
 
-ROTATION_SPEED_CEILING identifies an intrinsic speed near the configurable
-400 km/s maximum; ROTATION_SPEED_BOUNDARY also includes zero. GEOMETRY_BOUNDARY
-identifies a geometry limit. Non-convergence flags do not invalidate the software
-workflow, but they prevent claiming a settled optimum. PSF edge and outer
-constant-speed padding diagnostics describe where the spatial approximation
-matters; they do not create additional data or remove those bins.
+ROTATION_SPEED_CEILING identifies an intrinsic speed near the configurable 400 km/s maximum; ROTATION_SPEED_BOUNDARY also includes zero. GEOMETRY_BOUNDARY identifies a geometry limit. Non-convergence flags do not invalidate the software workflow, but they prevent claiming a settled optimum. PSF edge and outer constant-speed padding diagnostics describe where the spatial approximation matters; they do not create additional data or remove those bins.
 
 ---
 
-# Script 5 — exact RH3 extraction, basins, grid validation, one/two-component reliability
+# Script 5 — exact RH3 extraction and kinematic diagnostics
 
-## `RH3_selected_basin.png`
+## `RH3_fraction_bins/bin_NNNN.pdf`
 
-**Script:** 05  
-**Class:** major methods diagnostic
+Each completed selected bin gets one PDF. The upper panel plots total chi-square relative to the best available state against all 99 RH3 fractions. Crosses at the bottom identify missing evaluations. The middle panel shows the fitted data pixels, both stellar components and their total fit with the additive continuum. The bottom panel shows residuals divided by the final saved errors. The title lists the fitted fraction, dispersions, absolute chi-square and best-fit flags.
 
-### Purpose
+Inspect incomplete or flat profiles, endpoints and dispersion boundaries alongside the spectra. A failed fraction may hide a lower minimum. The stored profile retains absolute scores, fitted arrays and attempt history. Figures are written after the numerical products and closed immediately.
 
-Explains which 3-D likelihood basin is associated with the global XookSuut-style anchor.
+## `RH3_global_kinematics.pdf`
 
-### Recommended panels
+The three columns show Disk A, Disk B and combined light. The upper row uses a common LOS velocity scale relative to the selected systemic velocity. The lower row uses a common dispersion scale. Each bin contributes its own best fraction state. Sky maps follow the saved RH3 spatial membership and show north up and east left. Pale gray marks bins outside the selected model. Dark gray marks selected bins with no scorable fit.
 
-1. profiled \(\Delta\chi^2(V_A,V_B)\);
-2. basin membership projected into velocity space;
-3. best \(f_A\) surface;
-4. markers for independent cube global minimum, global-model anchor, and selected basin minimum.
+The component velocities are the Script 04 predictions. The component dispersions are the exact RH3 refits. The combined panels show reconstructed LOSVD moments using the achieved stellar fraction. The combined variance includes the weighted component variances and $f_A(1-f_A)(V_A-V_B)^2$. Compare the combined morphology with the expected two-sigma appearance, accounting for the observation and passband. These panels are a consistency diagnostic of the adopted decomposition.
 
-### Interpretation
+## `RH3_major_axis_velocity_profile.pdf`
 
-The selected basin need not contain the absolute individual-cube minimum. A slightly worse local basin may be selected because it is globally coherent across the galaxy.
+The curves show the selected model's unblurred LOS velocity along the signed major axis through the fitted center. The vertical axis is relative to systemic. The imposed central rotation speed is zero and opposite rotation senses give opposing sign changes. Points show the saved aperture predictions, including the adopted PSF when enabled, at geometric bin centroids projected onto that axis. Off-axis bins are included and the shaded span shows the projection of the member pixels. The profile can extend outside the shaded span.
 
----
+## Numerical diagnostics and handoff
 
-## `RH3_basin_likelihood_concentration.png`
+Read `products/RH3_global_kinematics.ecsv` for the adopted bin values and flags. The table preserves the Script 03 velocity frame. `CHI2_SCRIPT03_MIN` describes the independent coarse minimum. `CHI2_SCRIPT04_INTERPOLATED` is the coherent interpolated bin score on the same absolute scale. `CHI2_TOTAL` is the exact best available Script 05 value. A negative exact-minus-coarse difference can result from continuous velocities or finer fraction sampling.
 
-**Script:** 05  
-**Class:** QC/methods
-
-### Purpose
-
-Separates *basin topology* from *statistical concentration*.
-
-### Quantity
-
-For basin cell \(c\),
-
-\[
-p_c
-\propto
-\exp(-\Delta\chi_c^2/2).
-\]
-
-### Suggested display
-
-Cumulative normalized likelihood mass versus number/fraction of highest-weight basin cells, with reference levels at 90%, 95%, 99%, 99.5%, and 99.9%.
-
-### Important interpretation
-
-A basin may contain the whole cube while 99% of its likelihood is concentrated in a small subset. A large basin alone does not mean RH3 is uninformative.
-
-### Scientific role
-
-The listed mass levels are diagnostics only. They are not hard candidate-selection cutoffs.
+`GRID_EDGE_WARNING` tracks proximity to the original velocity-grid limits. `FRACTION_EDGE` marks the 0.01 or 0.99 fine endpoints. `SIGMA_BOUNDARY` and `PPXF_NOT_CONVERGED` record numerical diagnostics of the adopted candidate. `INCOMPLETE_PROFILE` and `NO_USABLE_FIT` distinguish missing fractions from a bin without a solution. Attempt records also retain unsuccessful and interrupted starts and user decisions to move on. Formal error bars belong to Script 07.
 
 ---
 
-## `RH3_cube_global_vs_selected_minimum.png`
+# Script 6 — RH3-anchored BL stellar populations
 
-**Script:** 05  
-**Class:** critical QC
-
-### Quantity
-
-\[
-\Delta\chi^2_{\mathrm{cube},i}
-=
-\chi_i^2(\mathrm{selected})
--
-\min_{V_A,V_B,f_A}\chi_i^2.
-\]
-
-### Purpose
-
-Tests whether the global smooth-disk constraint is choosing a low-likelihood solution that the individual spectrum strongly rejects.
-
-### Healthy result
-
-Many bins near zero; some modestly positive bins are acceptable when the global model chooses a nearby coherent basin.
-
-### Warning sign
-
-Large positive values in numerous bins, especially coherent spatial regions.
-
----
-
-## `RH3_selected_delta_chi2_map.png`
-
-**Script:** 05  
-**Class:** QC
-
-Maps the selected solution's \(\Delta\chi^2\) relative to the minimum of its own selected basin. Distinguishes “wrong basin relative to global cube” from “far up the wall of the chosen basin.”
-
----
-
-## `RH3_grid_edge_distance.png`
-
-**Script:** 05  
-**Class:** critical QC
-
-### Quantity
-
-Minimum number of grid cells between the selected discrete state and any \(V_A\), \(V_B\), or \(f_A\) boundary.
-
-### Flag
-
-`GRID_EDGE_WARNING` when the distance is ≤2 cells.
-
-### Action
-
-Expand and rerun the relevant grid rather than extrapolating beyond it.
-
----
-
-## `RH3_exact_vs_grid_solution.png`
-
-**Script:** 05  
-**Class:** method-validation QC
-
-### Purpose
-
-Compares coarse-grid/interpolated quantities to the exact pPXF refit at the continuous global velocities.
-
-### Suggested maps
-
-- \(V_A^{\mathrm{exact}}-V_A^{\mathrm{grid}}\);
-- \(V_B^{\mathrm{exact}}-V_B^{\mathrm{grid}}\);
-- \(\sigma_A^{\mathrm{exact}}-\sigma_A^{\mathrm{grid}}\);
-- \(\sigma_B^{\mathrm{exact}}-\sigma_B^{\mathrm{grid}}\);
-- \(f_A^{\mathrm{fine}}-f_A^{\mathrm{coarse}}\).
-
-### Interpretation
-
-Small differences validate that the cube is adequate for likelihood topology while the final exact refit removes quantization.
-
----
-
-## `RH3_fA_refinement.png`
-
-**Script:** 05  
-**Class:** per-bin QC
-
-Plots \(\chi^2(f_{A,\mathrm{RH3}})\) at the exact global velocities across the fine 0.01-step local fraction scan.
-
-### Warning signs
-
-Minimum at the refinement interval edge or a very broad/flat profile.
-
-### Action
-
-Automatically widen the fine interval if the edge is hit.
-
----
-
-## `two_component_mock_calibration.png`
-
-**Script:** 05 / model calibration  
-**Class:** critical methods diagnostic
-
-### Purpose
-
-Shows the mock-data calibration connecting the one-vs-two-component statistic and recovery behavior to physical/observational conditions.
-
-### Suggested content
-
-Separate panels or clearly documented variants for:
-
-- single-component false-positive distribution of \(T\);
-- two-component recovery fraction versus \(\Delta V\);
-- recovery versus \(f_A\);
-- recovery versus S/N;
-- interpolation region in \((S/N,\Delta V,f_A,\sigma_A,\sigma_B)\) space.
-
-### Important
-
-Do not label the empirical recovery fraction as the posterior probability that an observed spectrum “is two-component.”
-
----
-
-## `two_component_false_positive_map.png`
-
-**Script:** 05  
-**Class:** science-quality map
-
-Maps
-
-\[
-p_{\mathrm{false},i}
-=
-P(T\ge T_i\mid\mathrm{true\ one\ component})
-\]
-
-from matched single-component simulations.
-
-Low values mean a true single-component spectrum rarely creates as strong a two-component preference.
-
----
-
-## `two_component_recovery_probability_map.png`
-
-**Script:** 05  
-**Class:** science-quality map
-
-Maps empirical two-component recovery/completeness under conditions comparable to the selected bin solution.
-
-Low recovery does not necessarily mean the observed bin is one-component; it means the decomposition lies in a regime where the method is not reliably complete.
-
----
-
-# Script 6 — BL stellar populations and RH3-likelihood propagation
+**Current design, 2026-10-26:** retain the anchored population fit at the exact selected RH3 kinematics, with independent BL fractions and population mixtures. The basin-propagated and local joint-kinematic alternatives below are historical proposals and are not part of nominal Script 06. Two-component spectral and coherent-model uncertainty propagation belongs to Script 07; see METHODS sections 8-10.
 
 ## `BL_primary_spectral_fit.png`
 

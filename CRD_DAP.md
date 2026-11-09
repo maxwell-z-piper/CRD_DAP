@@ -2,13 +2,13 @@
 
 **CRD_DAP** is a research pipeline for decomposing counter-rotating stellar disks (CRDs) observed with Keck/KCWI/KCRM. The project is being developed around paired BL and RH3 observations and is designed to preserve as much of the spectral likelihood information as possible from the high-resolution RH3 kinematic fits before propagating those constraints into two-component stellar-population fits in BL.
 
-The repository contains the configuration, logging, validation, diagnostic-documentation architecture, the `crd_utils` helper package, and implemented science-driver stages 01--03: cube preparation/registration, master BL PowerBins, and independent RH3 profile-likelihood cubes. Later science-driver scripts described in `METHODS.md` will be implemented sequentially.
+Scripts 01–05 implement cube preparation and registration, master BL PowerBins, independent RH3 likelihood cubes, coherent two-disk modeling and exact RH3 refits. METHODS describes the planned BL population and uncertainty stages.
 
 **Production CRD_DAP runs begin from a validated `CRD_DRP` reduction package, not from arbitrary cube paths.** The upstream reduction pipeline must be completed first, and its `CRD_DRP_reduction_manifest.json` is the formal handoff contract between reduction and science analysis.
 
 ## Scientific design in one sentence
 
-Rather than reducing every spatial bin to one independently selected two-component LOSVD, the pipeline constructs per-bin RH3 profile-likelihood surfaces, uses a globally coherent XookSuut-style two-disk rotation model to select the physically consistent solution family, and propagates the RH3-supported kinematic uncertainty into separate BL stellar-population measurements.
+The pipeline combines per-bin RH3 likelihoods in a coherent two-disk rotation model, refits the spectra at the selected velocities and passes the resulting kinematics to the planned BL population analysis.
 
 
 ## Required upstream reduction: CRD_DRP
@@ -97,7 +97,9 @@ CRD_DAP/
 │   ├── README.md
 │   ├── 01_prepare_and_register_cubes.py
 │   ├── 02_make_master_BL_bins.py
-│   └── 03_build_RH3_likelihood_cubes.py
+│   ├── 03_build_RH3_likelihood_cubes.py
+│   ├── 04_fit_global_two_disk_model.py
+│   └── 05_extract_global_RH3_solution.py
 ├── tests/
 ├── examples/
 ├── data/
@@ -109,9 +111,10 @@ CRD_DAP/
 
 - **Script 01:** implemented with the production `CRD_DRP_reduction_manifest.json` handoff. It verifies the validated reduction package, resolves BLUE/RED science products, applies the finalized CRD_DRP atmospheric masks, and preserves both native and combined mask provenance in the prepared cubes.
 - **Script 02:** implemented and integration-tested; BL defines one master PowerBin tessellation and the same physical memberships are transferred to the red/RH3 stream. CRD_DRP wavelength exclusions are inherited automatically through Script-1 `GOODWAVE`/`GOODMASK`.
-- **Script 03:** implemented for exact independent `(V_A,V_B,f_A,RH3)` profile-likelihood cubes, one-component controls, empirical-LSF XSL preparation, restart checkpoints, and multiprocessing. The production atmospheric mask is inherited from Scripts 01--02 rather than rebuilt inside Script 03. The first development pass uses formal diagonal spectral uncertainties and explicitly marks likelihood widths as uncalibrated until residual variance/covariance is revisited.
-- **Script 03:** implemented, undergoing testing; can take both `--script1-run` and `--script2-run` explicitly, which is useful when completed upstream run directories have been moved or renamed and older manifest paths are stale. Can also take `--workers` to specify how many cores to be run in parallel, and `--resume` if the script was stopped mix-run.
-- **Scripts 04--07:** design documented; implementation follows after Script-3 integration testing.
+- **Script 03** fits independent RH3 likelihood cubes and saves the final scalar-calibrated errors, matched XSL templates and fitted-pixel masks.
+- **Script 04** fits and compares coherent two-disk models, then saves an explicitly selected model and its continuous bin velocities.
+- **Script 05** refits all 99 RH3 fractions at the selected velocities, saves restartable bin profiles and produces the best-state kinematic maps and two-sided velocity profile.
+- **Scripts 06–07** are planned for BL populations and uncertainties.
 
 ## Intended science scripts
 
@@ -183,3 +186,34 @@ The numerical settings in the template configuration are **development defaults*
 
 
 Script 3 now derives template wavelength padding from both the exact two-component grid and the one-component control velocity domain, then runs a real pPXF wavelength-coverage preflight before launching worker processes.
+
+
+## Per-target config checklist
+
+Start from `config/target_config_template.py`. This checklist assumes the same BL/RH3 analysis protocol across objects. Use the target's own reduction and calibration products and keep shared choices at the reviewed project settings.
+
+| Set or review for each target | What to supply |
+|---|---|
+| `TARGET_NAME`, `MANGA_ID`, `REDSHIFT` | Set `TARGET_NAME` to the target's plate–IFU identifier when using PyMorph. Record the MaNGA catalog ID for provenance and supply the target redshift in the adopted science frame. |
+| `BL_ICUBE`, `BL_VCUBE`, `BL_MCUBE`, `BL_ECUBE`, `RH3_ICUBE`, `RH3_VCUBE`, `RH3_MCUBE`, `RH3_ECUBE` | Point to the target's matched flux, variance, mask and exposure stacks. Script 01 reads its science paths from `--reduction-manifest` when supplied. Scripts 02–03 currently perform strict config path checks, so populate these fields with existing matching files for the full workflow. |
+| `BL_NOISE_STACK_MANIFEST`, `RH3_NOISE_STACK_MANIFEST` | Supply the two noise replay manifests for the exact target stacks used by Script 01. |
+| `BL_MASTER_ARC`, `RH3_MASTER_ARC` | Select the arcs that match each arm's science setup. |
+| `PA_KIN_INITIAL_DEG`, `PA_KIN_ERR_DEG` | Supply the reviewed stellar kinematic PA, measured east of north, and its uncertainty in degrees. |
+| `MANGA_SIGMA_PEAK_POS_KMS`, `MANGA_SIGMA_PEAK_NEG_KMS`, `MANGA_SIGMA_BASE_KMS` | Supply instrumentally corrected peak dispersions and an underlying baseline in km/s. The peak dispersions must exceed the positive baseline. Script 04 uses them for initialization and Script 05 seeds both widths from the baseline, which must lie inside the adopted RH3 dispersion bounds. |
+| `R_2SIGMA_POS_INITIAL_ARCSEC`, `R_2SIGMA_NEG_INITIAL_ARCSEC` | Give positive projected distances from the center to the two dispersion peaks along the major axis. POS/NEG identify the sides. |
+| `SCRIPT04_PSF_STANDARD_CUBES` | Supply the reduced native standard-star cubes appropriate to the RH3 observations. Review the Gaussian/Moffat comparison and choose the profile at the command line. |
+| `SCRIPT04_PYMORPH_HDU` or `SCRIPT04_INCLINATION_BOUNDS_DEG` | Review the catalog band and disk axis ratio for the target. If using explicit bounds instead, optionally supply `SCRIPT04_INCLINATION_INITIAL_DEG`. The default initializer for explicit bounds is their midpoint. |
+
+Set `PYMORPH_VAC` and `XSL_TEMPLATE_LIBRARY` to valid local paths once per installation or dataset release. Multiple targets can share the same catalog and template archive. `PROJECT_ROOT` and `RUNS_ROOT` normally follow the checkout.
+
+Review these fields when a target or observation calls for an override.
+
+- `VSYS_INITIAL_KMS` defaults to the median saved one-component RH3 velocity. `X0_INITIAL_ARCSEC` and `Y0_INITIAL_ARCSEC` can supply a reviewed center in the prepared sky-offset frame. Their default uses the prepared origin.
+- `BL_PSF_FWHM_ARCSEC` and `RH3_PSF_FWHM_ARCSEC` can record measured seeing for Script 01. Leave them unset to use available header provenance. Script 04 derives its kernel from the selected standard-star fit.
+- `SCRIPT04_PSF_OBSERVED_RANGE_ANGSTROM` defaults to the redshifted RH3 continuum window. Review that interval against standard-star coverage. `SCRIPT04_DISK_A_ROTATION_SIGN` is an optional reviewed label override.
+- `BL_ARC_WAVEMAP`, `BL_ARC_SLICEMAP`, `BL_ARC_POSMAP` and their `RH3_` counterparts can resolve ambiguous calibration-file discovery.
+- `BL_EXPECTED_GRATING` and `RH3_EXPECTED_GRATING` follow the actual hardware. The production template specifies BL/RH3. The 8143-1902 development config uses RL for the red arm and different wavelength windows and binning S/N. Check the production windows against usable wavelength coverage before applying a copied development config.
+- `RH3_MASK_OBSERVED_RANGES_ANGSTROM` and `RH3_MASK_REST_RANGES_ANGSTROM` provide explicit extra exclusions when justified. The validated atmospheric masks enter through Script 01. The optional `MANGA_SIGMA_MAP` and `MANGA_VELOCITY_MAP` paths are ancillary records because Script 04 takes the measured scalars directly.
+- `BL_CUBE` and `RH3_CUBE` are the direct single-cube paths for the legacy `SCIENCE_INPUT_FORMAT="drp"` branch.
+
+For a fixed protocol, retain the reviewed binning S/N and aperture policy, mask thresholds, velocity and fraction grids, dispersion bounds, template and continuum choices, PSF-scale ring spacing, geometric bounds and optimizer budgets. Keep wavelength and velocity-frame inference on `auto` where the headers support it. Keep `TEMPLATE_WAVELENGTH_MEDIUM` consistent with the shared library. Run names, upstream run directories, worker counts and Script 04's PSF, smoothing strength and final model selections are run-level choices in PIPELINE_CALLS.
