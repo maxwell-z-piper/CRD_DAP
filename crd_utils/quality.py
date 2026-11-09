@@ -124,6 +124,24 @@ FLAG_DEFINITIONS = {
 }
 
 
+# Script 05 attempt and selected-profile diagnostics.
+for name, description in {
+    "PPXF_EXCEPTION": "The exact RH3 fit raised an exception.",
+    "PPXF_NOT_CONVERGED": "pPXF returned an optimizer status indicating non-convergence.",
+    "NONFINITE_FIT": "The returned RH3 model, score or parameters contain nonfinite values.",
+    "FIXED_VELOCITY_MISMATCH": "Returned LOS velocities differ from the fixed coherent pair.",
+    "FIXED_FRACTION_MISMATCH": "The stellar weights do not reproduce the imposed RH3 fraction.",
+    "SIGMA_OUT_OF_BOUNDS": "A returned dispersion violates the inherited bounds.",
+    "SIGMA_BOUNDARY": "A returned dispersion is within the warning distance of a bound.",
+    "INTERRUPTED_ATTEMPT": "A reserved recovery attempt was interrupted before its result was saved.",
+    "FRACTION_EDGE": "The adopted fraction lies at an endpoint of the 0.01–0.99 scan.",
+    "INCOMPLETE_PROFILE": "At least one fraction has no scorable fit.",
+    "NO_USABLE_FIT": "The selected bin has no scorable fraction.",
+    "OUTSIDE_SELECTED_MODEL": "The bin is outside the selected Script 04 membership.",
+}.items():
+    FLAG_DEFINITIONS[name] = QualityFlagDefinition(name, description)
+
+
 def describe_flag(name: str) -> str:
     """Return the human-readable meaning of a standardized quality flag."""
     try:

@@ -24,6 +24,9 @@ Current module responsibilities:
 - `global_disk_io.py` — portable upstream contracts, whole-bin domains, reviewed geometry inputs and atomic products.
 - `stellar_psf.py` — native-pixel-integrated Gaussian/Moffat standard fits, effective PSF transfer and stellar QA.
 - `global_disk_plotting.py` — the 2×6 strength-review sheet, geometry and eight-model comparison figures.
+- `rh3_refit_io.py` — verify the saved upstream model, fit products, coordinates and bin memberships for Script 05.
+- `rh3_refit.py` — exact fixed-coordinate pPXF refits, component spectra and durable fraction profiles.
+- `rh3_refit_plotting.py` — per-bin fit PDFs, best-state kinematic maps and the two-sided velocity profile.
 - `populations.py` — BL two-component stellar-population fits and SSP summaries.
 - `sampling.py` — RH3-likelihood-weighted sampling, ESS, convergence, eventual joint-minimum refinement.
 - `validation.py` — hard scientific checks and grid/boundary validation.

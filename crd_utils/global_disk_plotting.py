@@ -1,5 +1,9 @@
-"""Script 04 review figures. Descriptive curve distances are not error bars."""
+"""Script 04 review figures, with north up and east left on sky maps.
+
+Descriptive curve distances are not error bars.
+"""
 from pathlib import Path
+from textwrap import fill
 
 import matplotlib
 matplotlib.use('Agg')
@@ -28,9 +32,28 @@ def _map(problem,values):
     return image
 
 
+def _orient_sky_map(ax):
+    """Display celestial offsets north-up/east-left with an explicit compass."""
+    from matplotlib.patches import Rectangle
+
+    # Change the display only: both the image and overlays keep their sky coordinates.
+    ax.xaxis.set_inverted(True)
+    ax.yaxis.set_inverted(False)
+    ax.add_patch(Rectangle((.69,.74),.28,.25,transform=ax.transAxes,
+                           facecolor='white',edgecolor='0.75',alpha=.9,zorder=5))
+    for endpoint in ((.90,.93),(.77,.80)):
+        ax.annotate('',xy=endpoint,xytext=(.90,.80),xycoords='axes fraction',
+                    arrowprops=dict(arrowstyle='->',color='black',lw=1),zorder=6)
+    ax.text(.90,.97,'N',transform=ax.transAxes,ha='center',va='center',
+            color='black',fontsize=8,zorder=6)
+    ax.text(.73,.80,'E',transform=ax.transAxes,ha='center',va='center',
+            color='black',fontsize=8,zorder=6)
+
+
 def _draw_map(ax,problem,values,**kwargs):
     artist=ax.pcolormesh(problem.east,problem.north,_map(problem,values),shading='nearest',**kwargs)
     ax.set(xlabel='East offset (arcsec)',ylabel='North offset (arcsec)',aspect='equal')
+    _orient_sky_map(ax)
     return artist
 
 
@@ -141,7 +164,11 @@ def solution_diagnostics(problem,result,path):
 
 def geometry_preview(problem,info,path):
     fig,axes=plt.subplots(1,2,figsize=(13,6))
-    axes[0].pcolormesh(problem.east,problem.north,problem.light,shading='nearest',cmap='gray')
+    # Zero weights include unused cube padding, not an IFU/slicer outline.
+    # Hide those cells while preserving every positive sample's sky position.
+    light=np.ma.masked_where(~np.isfinite(problem.light)|(problem.light<=0),problem.light)
+    axes[0].pcolormesh(problem.east,problem.north,light,shading='nearest',
+                       cmap='gray',rasterized=True)
     x0,y0,pa,inc,_=problem.initial_geometry
     t=np.linspace(0,2*np.pi,200)
     p=np.deg2rad(pa)
@@ -150,14 +177,17 @@ def geometry_preview(problem,info,path):
         axes[0].plot(x0+major*np.sin(p)+minor*np.cos(p),y0+major*np.cos(p)-minor*np.sin(p),lw=.5)
     axes[0].scatter([x0],[y0],marker='+',color='red')
     axes[0].set(aspect='equal',xlabel='East offset (arcsec)',ylabel='North offset (arcsec)',
-                title='Fixed reference geometry / node coverage')
+                title='Fixed reference geometry / node coverage\nRH3 continuum; zero-weight pixels hidden')
+    _orient_sky_map(axes[0])
     radius,_=disk_coordinates(
         problem.east-x0,problem.north-y0,pa,inc)
     members=np.isin(problem.member_bin,problem.selected)
     axes[1].hist(radius[problem.member_y[members],problem.member_x[members]],
                  bins=np.r_[0.,(problem.nodes[:-1]+problem.nodes[1:])/2,problem.nodes[-1]+info['spacing_arcsec']/2])
+    label_source=fill(info['label']['source'],width=42)
     axes[1].set(xlabel='Disk-plane radius (arcsec)',ylabel='Selected member-spaxel count',
-                title=f"{info['extent']}: {len(problem.selected)} bins\nDisk A sign {problem.sign_a:+d}; {info['label']['source']}")
+                title=f"{info['extent']}: {len(problem.selected)} bins; Disk A sign {problem.sign_a:+d}\n{label_source}")
+    axes[1].title.set_fontsize(10)
     fig.tight_layout();_save(fig,path)
 
 

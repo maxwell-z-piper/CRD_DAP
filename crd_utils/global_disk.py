@@ -226,7 +226,8 @@ def starting_models(problem, *, seed, population_factor):
 
 
 def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
-             global_iterations=80, local_starts=4, local_iterations=400, tolerance=1e-5):
+             global_iterations=80, local_starts=4, local_iterations=400, tolerance=1e-5,
+             additional_starts=None):
     """Population exploration, then bounded derivative-free local refinement.
 
     Differential evolution samples SEARCH states; it does not produce posterior
@@ -239,6 +240,10 @@ def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
     if not np.isfinite(tolerance) or tolerance <= 0:
         raise ValueError('Optimizer tolerance must be finite and positive')
     logger = logging.getLogger(__name__)
+    logger.info('Fields: timestamp=local wall time; step=combined optimizer-history index; '
+                'Qdata=sum of bin delta-chi-square; P=curvature penalty; objective=Qdata+P; '
+                'geometry=[east0_arcsec,north0_arcsec,PA_east_of_north_deg,inclination_deg,Vsys_kms]; '
+                'elapsed=wall seconds since this fit started. Search states are not posterior draws.')
     history = []
     rejected = 0
     def objective(theta):
@@ -248,6 +253,21 @@ def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
             rejected += 1
         return value
     population = starting_models(problem,seed=seed,population_factor=population_factor)
+    extra=np.empty((0,len(problem.bounds)))
+    if additional_starts is not None:
+        extra=np.asarray(additional_starts,dtype=float)
+        if extra.size:
+            if extra.ndim!=2 or extra.shape[1]!=len(problem.bounds):
+                raise ValueError('Additional starts must have one complete parameter vector per row')
+            if any(not np.isfinite(objective(state)) for state in extra):
+                raise ValueError('Additional starts must satisfy this problem bounds and likelihood support')
+            extra=np.unique(extra,axis=0)
+            population=np.vstack((population,extra))
+        else:
+            extra=np.empty((0,len(problem.bounds)))
+    initial_best=float(min(objective(state) for state in population))
+    logger.info('Search starts: %d population states, including %d shared candidates; '
+                'best initial objective=%.8g',len(population),len(extra),initial_best)
     def callback(theta, convergence):
         result = problem.evaluate(theta,coefficient,details=True)
         if result is None:
@@ -291,6 +311,8 @@ def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
         raise RuntimeError("No finite global disk solution was found")
     theta = np.asarray(alternatives[0]['theta'])
     detail = problem.evaluate(theta,coefficient,details=True)
+    if detail['objective']>initial_best+1e-7*max(1.,abs(initial_best)):
+        raise RuntimeError('Refinement lost a better valid initial candidate')
     flags = []
     if not alternatives[0]['success']:
         flags.append('LOCAL_OPTIMIZER_NOT_CONVERGED')
@@ -312,4 +334,5 @@ def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
                 bin_ids=problem.bin_ids[problem.selected].tolist(),flags=flags,
                 alternatives=alternatives,history=history,rejected_evaluations=rejected,
                 elapsed_seconds=time.monotonic()-start,
+                additional_start_count=len(extra),initial_best_objective=initial_best,
                 global_message=str(explored.message),parameter_order=['east0','north0','PA','inclination','Vsys','U_A...','U_B...'])
