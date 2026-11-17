@@ -7,6 +7,7 @@ No pPXF fits or noise recalibrations happen in this module.
 """
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 import time
 import logging
@@ -227,7 +228,8 @@ def starting_models(problem, *, seed, population_factor):
 
 def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
              global_iterations=80, local_starts=4, local_iterations=400, tolerance=1e-5,
-             additional_starts=None):
+             additional_starts=None, powell_max_restarts=100, powell_stability_window=4,
+             powell_node_tol_kms=3., powell_los_tol_kms=0.25):
     """Population exploration, then bounded derivative-free local refinement.
 
     Differential evolution samples SEARCH states; it does not produce posterior
@@ -239,6 +241,11 @@ def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
         raise ValueError('Positive population/local budgets and nonnegative global iterations are required')
     if not np.isfinite(tolerance) or tolerance <= 0:
         raise ValueError('Optimizer tolerance must be finite and positive')
+    if powell_max_restarts < 1 or powell_stability_window < 2:
+        raise ValueError('Powell refinement requires at least one restart and a window of at least two states')
+    velocity_tolerances = (powell_node_tol_kms, powell_los_tol_kms)
+    if not np.all(np.isfinite(velocity_tolerances)) or min(velocity_tolerances) <= 0:
+        raise ValueError('Powell kinematic tolerances must be finite and positive')
     logger = logging.getLogger(__name__)
     logger.info('Fields: timestamp=local wall time; step=combined optimizer-history index; '
                 'Qdata=sum of bin delta-chi-square; P=curvature penalty; objective=Qdata+P; '
@@ -292,11 +299,15 @@ def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
             starts.append(pool[index])
         if len(starts) >= local_starts:
             break
+
+    def refine(state):
+        return minimize(objective,state,method='Powell',bounds=problem.bounds,
+                        callback=lambda theta:callback(theta,None),
+                        options=dict(maxiter=local_iterations,ftol=tolerance,xtol=tolerance))
+
     alternatives = []
     for state in starts:
-        refined = minimize(objective,state,method='Powell',bounds=problem.bounds,
-                           callback=lambda theta:callback(theta,None),
-                           options=dict(maxiter=local_iterations,ftol=tolerance,xtol=tolerance))
+        refined = refine(state)
         # Powell can terminate at an unsupported point on a constrained surface.
         # Preserve the valid starting state instead of accepting a worse result.
         accepted = refined.x if np.isfinite(refined.fun) and refined.fun <= objective(state) else state
@@ -313,11 +324,65 @@ def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
     detail = problem.evaluate(theta,coefficient,details=True)
     if detail['objective']>initial_best+1e-7*max(1.,abs(initial_best)):
         raise RuntimeError('Refinement lost a better valid initial candidate')
+
+    # Compare the full range in each velocity over consecutive improvements.
+    # A rejected step cannot add a duplicate to the window and imply stability.
+    window = deque([(theta[5:], np.stack((detail['va'], detail['vb'])))],
+                   maxlen=powell_stability_window)
+    restarts = []
+    winning_restart = None
+    initial_local_objective = detail['objective']
+    stop_reason = 'restart_limit'
+    node_span = los_span = None
+    logger.info('Powell stability check: max_restarts=%d window=%d node_tol=%.4g km/s '
+                'LOS_tol=%.4g km/s initial_objective=%.8g', powell_max_restarts,
+                powell_stability_window, powell_node_tol_kms, powell_los_tol_kms,
+                initial_local_objective)
+    for number in range(1, powell_max_restarts + 1):
+        candidate = refine(theta)
+        score = objective(candidate.x)
+        accepted = bool(np.isfinite(score) and score < detail['objective'])
+        if accepted:
+            winning_restart = candidate
+            theta = np.asarray(candidate.x)
+            detail = problem.evaluate(theta,coefficient,details=True)
+            window.append((theta[5:], np.stack((detail['va'], detail['vb']))))
+            if len(window) == powell_stability_window:
+                nodes, projected = zip(*window)
+                node_span = float(np.ptp(np.stack(nodes), axis=0).max())
+                los_span = float(np.ptp(np.stack(projected), axis=0).max())
+            history.append(dict(seconds=time.monotonic()-start, objective=detail['objective'],
+                                data_score=detail['data_score'], penalty=detail['penalty']))
+        restarts.append(dict(number=number, accepted=accepted, objective=detail['objective'],
+                             candidate_objective=float(score) if np.isfinite(score) else None,
+                             node_span_kms=node_span, los_span_kms=los_span,
+                             success=bool(candidate.success), message=str(candidate.message)))
+        logger.info('Powell restart=%d accepted=%s objective=%.8g candidate_objective=%.8g '
+                    'node_span_kms=%s LOS_span_kms=%s', number, accepted, detail['objective'],
+                    score, node_span, los_span)
+        if not accepted:
+            # Repeating deterministic Powell from the same state with the same
+            # options would repeat the failed attempt.
+            stop_reason = 'no_improvement'
+            break
+        if node_span is not None and node_span <= powell_node_tol_kms and los_span <= powell_los_tol_kms:
+            stop_reason = 'stable'
+            break
+    if winning_restart is not None:
+        alternatives.insert(0, dict(theta=theta.tolist(), objective=detail['objective'],
+                                    success=bool(winning_restart.success), message=str(winning_restart.message)))
+    logger.info('Powell stability check finished: %s after %d restart(s), objective %.8g -> %.8g',
+                stop_reason, len(restarts), initial_local_objective, detail['objective'])
+
     flags = []
     if not alternatives[0]['success']:
         flags.append('LOCAL_OPTIMIZER_NOT_CONVERGED')
     if not explored.success:
         flags.append('GLOBAL_SEARCH_BUDGET_REACHED')
+    if stop_reason == 'restart_limit':
+        flags.append('KINEMATIC_RESTART_LIMIT_REACHED')
+    elif stop_reason == 'no_improvement':
+        flags.append('KINEMATIC_RESTART_STALLED')
     near = np.minimum(theta-problem.bounds[:,0],problem.bounds[:,1]-theta) <= 1e-3*span
     if np.any(near[5:]):
         flags.append('ROTATION_SPEED_BOUNDARY')
@@ -333,6 +398,13 @@ def fit_disk(problem, coefficient, *, seed=1, population_factor=6,
                 **{key:value.tolist() if isinstance(value,np.ndarray) else value for key,value in detail.items()},
                 bin_ids=problem.bin_ids[problem.selected].tolist(),flags=flags,
                 alternatives=alternatives,history=history,rejected_evaluations=rejected,
+                kinematic_refinement=dict(stop_reason=stop_reason,
+                                          max_restarts=powell_max_restarts,
+                                          stability_window=powell_stability_window,
+                                          node_tolerance_kms=powell_node_tol_kms,
+                                          los_tolerance_kms=powell_los_tol_kms,
+                                          initial_objective=initial_local_objective,
+                                          restarts=restarts),
                 elapsed_seconds=time.monotonic()-start,
                 additional_start_count=len(extra),initial_best_objective=initial_best,
                 global_message=str(explored.message),parameter_order=['east0','north0','PA','inclination','Vsys','U_A...','U_B...'])

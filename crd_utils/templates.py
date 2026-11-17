@@ -303,6 +303,7 @@ def prepare_xsl_rh3_templates(
     target_fwhm_rest: Callable[[np.ndarray], np.ndarray],
     template_medium: str,
     velocity_padding_kms: float,
+    normalization_range: tuple[float, float] | None = None,
 ) -> PreparedTemplates:
     """Prepare the complete XSL SSP grid for Script-3 RH3 likelihood fitting.
 
@@ -366,10 +367,11 @@ def prepare_xsl_rh3_templates(
     if np.any(~np.isfinite(log_templates)):
         raise ValueError("Template log-rebin produced unsupported/non-finite pixels.")
 
-    # The light-fraction convention is defined on the *science fitting interval*,
-    # not the wider velocity-padding interval.
+    # RH3 defaults to its science fitting interval. BL passes its fixed
+    # reference band explicitly, independent of template padding.
+    normalization_range = (lo, hi) if normalization_range is None else normalization_range
     log_templates, norms = normalize_template_light_fraction_basis(
-        log_templates, log_wave, (lo, hi)
+        log_templates, log_wave, normalization_range
     )
     target_log = np.interp(log_wave, lam, target)
     native_log = np.interp(log_wave, lam, native_fwhm)
@@ -385,14 +387,19 @@ def prepare_xsl_rh3_templates(
         age=age,
         metallicity=metal,
         normalization=norms,
-        normalization_range=(lo, hi),
+        normalization_range=normalization_range,
         template_medium=str(template_medium).lower(),
     )
 
 
-def prepare_xsl_bl_templates(*args, **kwargs):
-    """Prepare BL population templates (implemented with Script 6)."""
-    raise NotImplementedError("Implemented with Script 6.")
+def prepare_xsl_bl_templates(*, xsl_path, supported_range, velscale, target_fwhm_rest,
+                             template_medium, normalization_range):
+    """Use the same LSF matching as RH3 with a separate BL reference band."""
+    return prepare_xsl_rh3_templates(
+        xsl_path=xsl_path, fit_range=supported_range, velscale=velscale,
+        target_fwhm_rest=target_fwhm_rest, template_medium=template_medium,
+        velocity_padding_kms=0., normalization_range=normalization_range,
+    )
 
 
 def rebin_spectrum_with_diagonal_noise(

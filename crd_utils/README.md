@@ -27,7 +27,14 @@ Current module responsibilities:
 - `rh3_refit_io.py` — verify the saved upstream model, fit products, coordinates and bin memberships for Script 05.
 - `rh3_refit.py` — exact fixed-coordinate pPXF refits, component spectra and durable fraction profiles.
 - `rh3_refit_plotting.py` — per-bin fit PDFs, best-state kinematic maps and the two-sided velocity profile.
-- `populations.py` — BL two-component stellar-population fits and SSP summaries.
+- `populations.py` — fixed-kinematics BL fraction fits, SSP weight conversion, and population summaries.
+- `bl_population_io.py` — Script 05 handoff, DAPall seeds, BL LSF matching and reviewed line masks.
+- `bl_population_products.py` — BL residual scaling, per-disk SSP grids and final table rows.
+- `bl_population_plotting.py` — BL line-review PDF, per-bin fraction diagnostics and population maps.
+- `script07_io.py` — nominal product verification and the frozen ensemble inputs.
+- `script07_fits.py` — paired noise, RH3 grid workers, and compact adaptive fraction refits.
+- `script07_products.py` — draw summaries, aperture weighting, final tables, and publication figures.
+- `script07_systematics.py` — optional separate Kroupa XSL sensitivity with the nominal BL setup.
 - `sampling.py` — RH3-likelihood-weighted sampling, ESS, convergence, eventual joint-minimum refinement.
 - `validation.py` — hard scientific checks and grid/boundary validation.
 - `quality.py` — centralized quality-flag definitions.
