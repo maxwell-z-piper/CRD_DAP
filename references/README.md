@@ -2,7 +2,7 @@
 
 Reviewed 2026-10-24 against the five exported CRD Decomposition chats, the current pipeline documentation, and subsequent design discussions. This is a curated reference library for the pipeline, its scientific precedents and alternatives discussed along the way.
 
-BibTeX entries are in [script04.bib](script04.bib). The filename and three original citation keys are retained for compatibility; the bibliography now covers the pipeline as a whole. [SCRIPT04_REFERENCES.md](SCRIPT04_REFERENCES.md) keeps the more detailed Script 04 design notes.
+BibTeX entries are in [crd_dap.bib](crd_dap.bib). The bibliography covers the pipeline as a whole and retains the original Script 04 citation keys. [SCRIPT04_REFERENCES.md](SCRIPT04_REFERENCES.md) keeps the more detailed Script 04 design notes.
 
 The notes below distinguish implemented methods, scientific context, future-stage precedents and methods we set aside. A citation does not mean that we adopted every part of that paper's analysis. Sources with verified journal metadata use their published records; other entries identify the arXiv version or software repository actually checked. Record software versions, commits and local patches with the eventual science run.
 
@@ -46,13 +46,13 @@ The notes below distinguish implemented methods, scientific context, future-stag
 
 - **Mitzkus et al. (2017)** — [Dominant dark matter and a counter-rotating disc: MUSE view of the low-luminosity S0 galaxy NGC 5102](https://doi.org/10.1093/mnras/stw2677). Monthly Notices of the Royal Astronomical Society, 464, 4789–4806. BibTeX: `Mitzkus2017`. Two-component pPXF, CaT and velocity-grid precedent. Our production grid fixes velocities exactly rather than permitting within-cell motion.
 
-- **Coccato et al. (2011)** — [Dating the formation of the counter-rotating stellar disc in the spiral galaxy NGC 5719 by disentangling its stellar populations](https://doi.org/10.1111/j.1745-3933.2011.01016.x). Monthly Notices of the Royal Astronomical Society: Letters, 412, L113–L117. BibTeX: `Coccato2011`. IFU component-spectrum/population decomposition and synthetic-recovery precedent. Does not establish our noise model or imply later uncertainty tests are complete.
+- **Coccato et al. (2011)** — [Dating the formation of the counter-rotating stellar disc in the spiral galaxy NGC 5719 by disentangling its stellar populations](https://doi.org/10.1111/j.1745-3933.2011.01016.x). Monthly Notices of the Royal Astronomical Society: Letters, 412, L113–L117. BibTeX: `Coccato2011`. IFU component-spectrum/population decomposition and synthetic-recovery precedent. Section 3 summarizes component ages using spatial medians and gives spatial standard deviations.
 
-- **Coccato et al. (2013)** — [Spectroscopic evidence of distinct stellar populations in the counter-rotating stellar disks of NGC 3593 and NGC 4550](https://doi.org/10.1051/0004-6361/201220460). Astronomy & Astrophysics, 549, A3. BibTeX: `Coccato2013`. Two-dimensional IFU decomposition and separate component-population maps.
+- **Coccato et al. (2013)** — [Spectroscopic evidence of distinct stellar populations in the counter-rotating stellar disks of NGC 3593 and NGC 4550](https://doi.org/10.1051/0004-6361/201220460). Astronomy & Astrophysics, 549, A3. BibTeX: `Coccato2013`. Two-dimensional IFU decomposition, separate component-population maps, and the reference for Script 07 aperture-wide luminosity weighting. Their §4.3 and Table 2 report each disk’s luminosity-weighted averages across the field and their radial profiles use the same spatial weighting.
 
 - **Johnston et al. (2013)** — [Disentangling the stellar populations in the counter-rotating disc galaxy NGC 4550](https://doi.org/10.1093/mnras/sts121). Monthly Notices of the Royal Astronomical Society, 428, 1296–1302. BibTeX: `Johnston2013`. Long-slit decomposition and Monte Carlo uncertainty precedent; distinguish this dataset from the IFU studies.
 
-- **Pizzella et al. (2018)** — [Evidence for the formation of the young counter-rotating stellar disk from gas acquired by IC 719](https://doi.org/10.1051/0004-6361/201731712). Astronomy & Astrophysics, 616, A22. BibTeX: `Pizzella2018`. MUSE/CaT component kinematics and populations; residual-based S/N discussion. Relevant precedent, not a verbatim scalar-calibration recipe.
+- **Pizzella et al. (2018)** — [Evidence for the formation of the young counter-rotating stellar disk from gas acquired by IC 719](https://doi.org/10.1051/0004-6361/201731712). Astronomy & Astrophysics, 616, A22. BibTeX: `Pizzella2018`. MUSE/CaT component kinematics and populations, with residual-based S/N discussion. The resolved population analysis reports component ages and metallicity as radial profiles.
 
 - **Katkov et al. (2016)** — [Stellar counter-rotation in lenticular galaxy NGC 448](https://doi.org/10.1093/mnras/stw1452). Monthly Notices of the Royal Astronomical Society, 461, 2068–2079. BibTeX: `Katkov2016`. Long-slit decomposition and noisy-best-fit-spectrum/refitting uncertainty precedent; current Script 04 does not generate final error bars.
 
