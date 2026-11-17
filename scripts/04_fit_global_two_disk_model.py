@@ -153,38 +153,79 @@ def problem_setup(cfg,args,out,logger):
 
 
 def _fit_job(payload):
-    problem,coefficient,options,logpath=payload
+    problem,coefficient,options,logpath,sources=payload
     handler=logging.FileHandler(logpath)
     handler.setFormatter(logging.Formatter('%(asctime)s | %(message)s'))
     logger=logging.getLogger('crd_utils.global_disk')
     logger.handlers=[handler];logger.setLevel(logging.INFO)
     try:
-        return global_disk.fit_disk(problem,coefficient,**options)
+        result=global_disk.fit_disk(problem,coefficient,**options)
+        result['additional_start_sources']=sources
+        return result
     finally:
         handler.close();logger.handlers=[]
 
 
 def fit_options(cfg):
-    return dict(seed=int(cfg.SCRIPT04_RANDOM_SEED),population_factor=int(cfg.SCRIPT04_POPULATION_FACTOR),
-                global_iterations=int(cfg.SCRIPT04_GLOBAL_ITERATIONS),local_starts=int(cfg.SCRIPT04_LOCAL_STARTS),
-                local_iterations=int(cfg.SCRIPT04_LOCAL_ITERATIONS),tolerance=float(cfg.SCRIPT04_OPTIMIZER_TOLERANCE))
+    options = dict(seed=int(cfg.SCRIPT04_RANDOM_SEED),population_factor=int(cfg.SCRIPT04_POPULATION_FACTOR),
+                   global_iterations=int(cfg.SCRIPT04_GLOBAL_ITERATIONS),local_starts=int(cfg.SCRIPT04_LOCAL_STARTS),
+                   local_iterations=int(cfg.SCRIPT04_LOCAL_ITERATIONS),tolerance=float(cfg.SCRIPT04_OPTIMIZER_TOLERANCE))
+    # Configs saved before the stability check inherit fit_disk's defaults.
+    stability_options = dict(powell_max_restarts=int, powell_stability_window=int,
+                             powell_node_tol_kms=float, powell_los_tol_kms=float)
+    for name, convert in stability_options.items():
+        key = 'SCRIPT04_' + name.upper()
+        if hasattr(cfg, key):
+            options[name] = convert(getattr(cfg, key))
+    return options
 
 
-def run_jobs(jobs,cfg,args,out,fingerprint,logger):
+def fit_group(problem,info):
+    """Share states only within the same spatial domain, PSF and node grid."""
+    return dict(extent=info['extent'],psf_enabled=problem.kernel is not None,
+                nodes=problem.nodes.tolist(),bin_ids=problem.bin_ids[problem.selected].tolist())
+
+
+def shared_candidates(problem,info,out,fingerprint):
+    """Collect compatible selected states and accepted local alternatives."""
+    group=fit_group(problem,info)
+    states={}
+    sources=[]
+    paths=sorted((out/'fits').glob('*.json'))
+    paths+=sorted((out/'metadata/shared_start_history').glob('*.json'))
+    for path in paths:
+        result=data_io.load_json(path)
+        if result.get('fingerprint')!=fingerprint or result.get('fit_group')!=group:
+            continue
+        sources.append(path.relative_to(out).as_posix())
+        for state in [result['theta']]+[a['theta'] for a in result.get('alternatives',[])]:
+            state=np.asarray(state,dtype=float)
+            if state.shape!=(len(problem.bounds),) or not np.isfinite(problem.evaluate(state,0.)):
+                raise ValueError(f'Invalid parameter vector in compatible shared-start fit: {path}')
+            states[tuple(state)]=state
+    ordered=[states[key] for key in sorted(states)]
+    return np.asarray(ordered).reshape(-1,len(problem.bounds)),sources
+
+
+def run_jobs(jobs,cfg,args,out,fingerprint,logger,*,replace_existing=False):
     """Atomic fit checkpoints, one parallel task per entire global fit."""
     completed={};pending=[]
     for name,problem,coefficient,info in jobs:
         path=out/f'fits/{name}.json'
         if path.exists():
             result=data_io.load_json(path)
-            if not args.resume or result['fingerprint']!=fingerprint or result['coefficient']!=coefficient:
+            if (not args.resume and not replace_existing) or result['fingerprint']!=fingerprint or result['coefficient']!=coefficient:
                 raise ValueError(f'Existing fit {name}: use --resume with matching inputs or a new directory')
-            completed[name]=result
-            logger.info('Reusing completed fit %s',name)
+            if replace_existing:
+                pending.append((name,problem,coefficient,info))
+            else:
+                completed[name]=result
+                logger.info('Reusing completed fit %s',name)
         else:
             pending.append((name,problem,coefficient,info))
     def save(name,problem,coefficient,info,result):
         result.update(name=name,fingerprint=fingerprint,info=info,sign_a=problem.sign_a,
+                      fit_group=fit_group(problem,info),
                       **{'lambda':float(coefficient/info['A'])})
         if info['label']['review_required']:
             result['flags'].append('DISK_LABEL_REFERENCE_REVIEW_REQUIRED')
@@ -203,24 +244,94 @@ def run_jobs(jobs,cfg,args,out,fingerprint,logger):
         result['n_bins']=len(problem.selected)
         result['n_parameters']=len(problem.bounds)
         result['mean_bin_data_score']=result['data_score']/len(problem.selected)
-        data_io.save_json(out/f'fits/{name}.json',result)
+        path=out/f'fits/{name}.json'
+        if replace_existing and path.exists():
+            previous=data_io.load_json(path)
+            tolerance=1e-7*max(1.,abs(previous['objective']))
+            if result['objective']>previous['objective']+tolerance:
+                raise RuntimeError(f'Shared-start refinement made {name} worse')
+            stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+            data_io.save_json(out/f'metadata/shared_start_history/{stamp}_{name}.json',previous)
+            result['previous_objective']=previous['objective']
+        data_io.save_json(path,result)
         completed[name]=result
         logger.info('Completed %s: Qdata %.6g, penalty %.6g, %.1fs; flags=%s',
                     name,result['data_score'],result['penalty'],result['elapsed_seconds'],result['flags'])
     if args.workers<1:
         raise ValueError('--workers must be at least 1')
     options=fit_options(cfg)
+    # Freeze all payloads before dispatch, so worker completion order does not
+    # change the candidate pool used by another job in this batch.
+    payloads=[]
+    for name,problem,coefficient,info in pending:
+        states,sources=shared_candidates(problem,info,out,fingerprint)
+        job_options=dict(options,additional_starts=states)
+        payloads.append(((name,problem,coefficient,info),
+                         (problem,coefficient,job_options,out/f'logs/{name}.progress.log',sources)))
     if args.workers==1:
-        for name,problem,coefficient,info in pending:
+        for (name,problem,coefficient,info),payload in payloads:
             logger.info('Starting %s; optimizer history: logs/%s.progress.log',name,name)
-            result=_fit_job((problem,coefficient,options,out/f'logs/{name}.progress.log'))
+            result=_fit_job(payload)
             save(name,problem,coefficient,info,result)
     elif pending:
         with ProcessPoolExecutor(max_workers=min(args.workers,len(pending))) as pool:
-            futures={pool.submit(_fit_job,(problem,c,options,out/f'logs/{name}.progress.log')):(name,problem,c,info)
-                     for name,problem,c,info in pending}
+            futures={pool.submit(_fit_job,payload):job for job,payload in payloads}
             for future in as_completed(futures):
                 save(*futures[future],future.result())
+    return completed
+
+
+def refine_shared_fits(jobs,completed,cfg,args,out,fingerprint,logger):
+    """Revisit fits beaten by known compatible states at their own coefficient.
+
+    The bounded pass count is a numerical budget, not a change in the model.
+    Unfinished cross-candidate refinement is explicitly flagged and resumable.
+    """
+    limit=int(getattr(cfg,'SCRIPT04_SHARED_REFINEMENT_PASSES',3))
+    if limit<1:
+        raise ValueError('SCRIPT04_SHARED_REFINEMENT_PASSES must be at least 1')
+    def checks():
+        records={}
+        for name,problem,coefficient,info in jobs:
+            states,sources=shared_candidates(problem,info,out,fingerprint)
+            best=min(float(problem.evaluate(s,coefficient)) for s in states)
+            current=float(completed[name]['objective'])
+            tolerance=1e-7*max(1.,abs(current))
+            records[name]=dict(candidate_count=len(states),sources=sources,
+                candidate_pool_sha256=hashlib.sha256(states.tobytes()).hexdigest(),
+                best_available_objective=best,objective_gap=max(0.,current-best),
+                tolerance=tolerance,complete=current<=best+tolerance)
+        return records
+    rounds=[]
+    for index in range(limit):
+        audit=checks()
+        pending=[job for job in jobs if not audit[job[0]]['complete']]
+        if not pending:
+            break
+        logger.info('Shared-start refinement pass %d/%d: %d fit(s) beaten by a known compatible state',
+                    index+1,limit,len(pending))
+        rounds.append({job[0]:audit[job[0]] for job in pending})
+        completed.update(run_jobs(pending,cfg,args,out,fingerprint,logger,replace_existing=True))
+    audit=checks()
+    for name,problem,coefficient,info in jobs:
+        result=completed[name]
+        flags=set(result['flags'])
+        flag='SHARED_START_REFINEMENT_INCOMPLETE'
+        if audit[name]['complete']:
+            flags.discard(flag)
+        else:
+            flags.add(flag)
+            logger.warning('%s | %s: known candidate improves objective by %.8g; '
+                           'resume to continue refinement or increase the pass budget in a new run',
+                           flag,name,audit[name]['objective_gap'])
+        if result.get('shared_start_check')!=audit[name] or set(result['flags'])!=flags:
+            result.update(flags=sorted(flags),shared_start_check=audit[name])
+            data_io.save_json(out/f'fits/{name}.json',result)
+    stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+    data_io.save_json(out/f'metadata/shared_start_refinement_{stamp}.json',
+                     dict(fingerprint=fingerprint,max_passes=limit,rounds=rounds,checks=audit))
+    logger.info('Shared-start cross-check: %d/%d fits are no worse than any saved compatible candidate',
+                sum(r['complete'] for r in audit.values()),len(audit))
     return completed
 
 
@@ -237,13 +348,18 @@ def calibrate(cfg,args,out,problems,infos,fingerprint,logger):
     problem,info=problems['full',True],infos['full',True]
     jobs=[(coefficient_name(c),problem,float(c),info) for c in values]
     fitted=run_jobs(jobs,cfg,args,out,fingerprint,logger)
+    fitted=refine_shared_fits(jobs,fitted,cfg,args,out,fingerprint,logger)
     results=[fitted[job[0]] for job in jobs]
     control=results[0]
+    previous_flags=control['flags'][:]
+    control['flags']=[f for f in control['flags'] if f!='CONTROL_SEARCH_NEEDS_REFINEMENT']
     if min(r['data_score'] for r in results)<control['data_score']-1e-7*max(1.,abs(control['data_score'])):
         if 'CONTROL_SEARCH_NEEDS_REFINEMENT' not in control['flags']:
             control['flags'].append('CONTROL_SEARCH_NEEDS_REFINEMENT')
             data_io.save_json(out/f'fits/{control["name"]}.json',control)
         logger.warning('A penalized run has lower data cost than the control: inspect alternative minima/convergence before selection')
+    if control['flags']!=previous_flags:
+        data_io.save_json(out/f'fits/{control["name"]}.json',control)
     plots.calibration_summary(problem,results,out/'figures/smoothing_calibration_2x6.png',info)
     record=dict(fingerprint=fingerprint,baseline_coefficient=baseline,
                 coefficients=values.tolist(),fits=[r['name'] for r in results],
@@ -328,6 +444,7 @@ def compare(cfg,args,out,problems,infos,fingerprint,logger):
     # Existing matching pilot copies are intentional reuse, not user overwrite.
     args.resume=True
     results=run_jobs(jobs,cfg,args,out,fingerprint,logger)
+    results=refine_shared_fits(jobs,results,cfg,args,out,fingerprint,logger)
     for name,problem,_,_ in jobs:
         export_fit(results[name],out)
         plots.solution_diagnostics(problem,results[name],out/f'figures/{name}_diagnostics.png')

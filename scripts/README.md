@@ -1,6 +1,6 @@
 # Science-driver scripts
 
-This directory contains the executable pipeline stages described in `../METHODS.md`. Scripts 1–4 are implemented; later stages are added sequentially as their helper functions are completed and tested.
+This directory contains the executable pipeline stages described in `../METHODS.md`. Scripts 1–5 are implemented; later stages are added sequentially as their helper functions are completed and tested.
 
 The drivers should intentionally stay compact. They should orchestrate work by calling thoroughly documented functions in `crd_utils` rather than containing large blocks of analysis logic themselves.
 
@@ -18,7 +18,7 @@ Science-driver sequence:
 
 ## Script 04 workflow
 
-See [../SCRIPT04.md](../SCRIPT04.md) for complete commands. The driver exposes
+See [../PIPELINE_CALLS.md](../PIPELINE_CALLS.md) for complete commands. The driver exposes
 `--phase psf`, `calibrate`, `review`, `compare`, and `choose-model`. It reads the
 three explicit upstream run directories, preserving the original calibrated
 likelihoods. Standard-star profile, smoothing strength and final model require
@@ -98,3 +98,23 @@ one-component-control status, first failed `(V_A,V_B,f_A)` coordinate, exact
 first pPXF exception, and counts of the most common state-level errors. For a
 partially successful cube, the per-bin completion line separately reports the
 number of pPXF failures and fixed-velocity mismatches.
+
+
+## Script 05 workflow
+
+Run `05_extract_global_RH3_solution.py` with the target config, `--script4-run` pointing to a run with a selected model and a fresh `--output-dir`. Use the command examples in PIPELINE_CALLS. The upstream run paths can be overridden after relocation. Workers calculate initial 99-fraction profiles independently, and the parent handles recovery decisions.
+
+In a terminal, Script 05 shows one updating progress bar for saved initial bin scans, including the bins already present on resume. It refreshes every five seconds while waiting for workers and clears for recovery prompts. Per-bin completion details go to the run logs. The elapsed time and ETA cover the initial scan, with recovery decisions handled separately.
+
+Use `--resume` to continue the same output directory. Each bin profile is both the durable spectral product and the retry checkpoint. Unattended execution preserves pending decisions for interactive resume. The handoff table and best-state maps are produced after the recovery decisions have been resolved.
+
+## Script 06 workflow
+
+Run `06_fit_BL_two_component_populations.py --phase review` with a completed `--script5-run` and a fresh `--output-dir`. Inspect the BL spectrum and line-coverage PDF. Approve the proposed line list and masks or edit the saved review JSON and regenerate the preview. Then use `--phase fit` with the same inputs and directory. See PIPELINE_CALLS for Mac and Windows examples.
+
+The driver uses the Script 05-style terminal progress display and saves each 99-fraction bin profile before showing a grouped recovery prompt. Use `--resume` after interruption. An unattended run saves pending retries and exits with status 2. The final products include calibrated BL errors, the stellar population table, the matched basis, and fit and population maps.
+
+
+## Script 07 workflow
+
+Run `07_uncertainties_and_final_maps.py` with matching nominal Scripts 04–06 and select a new output directory. Pass Scripts 01–03 explicitly if the runs have moved. Use `--validate-inputs` to verify the handoffs or `--resume` to pick up the first unfinished draw. Use `--non-interactive` to move on from failed fractions. The default target is 100 accepted draws and the default review pause is 10 consecutive rejected attempts. The driver checkpoints only active work, retains compact draw records, and exports tables and figures after the target is reached. See PIPELINE_CALLS for commands.
