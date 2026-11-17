@@ -44,3 +44,9 @@ scientific bounds and selected regularity strength.
 Script 05 starts both dispersions at `MANGA_SIGMA_BASE_KMS` and optimizes them independently at each of the 99 RH3 fractions. It inherits the dispersion bounds and spectral settings from the saved Script 03 run. The baseline must fall within those bounds. Use `RH3_FA_FINE_STEP = 0.01` for the agreed full scan.
 
 The [per-target checklist](../CRD_DAP.md#per-target-config-checklist) separates target measurements and observation files from shared setup and analysis settings.
+
+Script 06 uses `MANGA_DAPALL` with `MANGA_PLATEIFU` and `MANGA_DAPTYPE` to seed BL gas kinematics. The Plate–IFU defaults to `TARGET_NAME`. Use `MANGA_GAS_V_SEED_KMS` and `MANGA_GAS_SIGMA_SEED_KMS` to override the catalog values. `BL_MASS_TO_LIGHT_BAND` selects the rest-frame mass-to-light filter, with SDSS g as the default.
+
+The requested BL fitting band, fixed fraction reference band and target-level wavelength exclusions are in section 13. Observed masks use the BL science wavelength medium and rest masks use the template medium. The final per-bin coverage and approved exceptions are recorded by the Script 06 review phase.
+
+Set `BL_PSF_STANDARD_CUBES` for the optional standard-star QA. By default it measures the redshifted BL fraction reference band.

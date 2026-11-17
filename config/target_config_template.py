@@ -75,6 +75,9 @@ XSL_TEMPLATE_LIBRARY = Path("/path/to/xsl_ssp_library")
 MANGA_SIGMA_MAP = None
 MANGA_VELOCITY_MAP = None
 
+# Local DR17 DAPall catalog for the Script 06 gas starting values.
+MANGA_DAPALL = None  # Set to Path("/path/to/dapall-v3_1_1-3.1.0.fits").
+
 # =============================================================================
 # 3. OUTPUT / RUN DIRECTORY
 # =============================================================================
@@ -500,6 +503,11 @@ SCRIPT04_POPULATION_FACTOR = 6
 SCRIPT04_GLOBAL_ITERATIONS = 80
 SCRIPT04_LOCAL_STARTS = 4
 SCRIPT04_LOCAL_ITERATIONS = 400
+# Continue from the best local state until both velocity ranges settle.
+SCRIPT04_POWELL_MAX_RESTARTS = 100
+SCRIPT04_POWELL_STABILITY_WINDOW = 4  # consecutive retained best states
+SCRIPT04_POWELL_NODE_TOL_KMS = 3.0
+SCRIPT04_POWELL_LOS_TOL_KMS = 0.25
 # Revisit fits beaten by saved states from the same extent/PSF/node grid.
 SCRIPT04_SHARED_REFINEMENT_PASSES = 3  # numerical budget; incomplete checks are flagged
 SCRIPT04_OPTIMIZER_TOLERANCE = 1e-5
@@ -545,40 +553,47 @@ BL_MDEGREE = 8  # DEVELOPMENT DEFAULT; validate on mocks
 
 FIT_BL_GAS_EMISSION = True
 
-# BL stellar-light fraction grid: coarse mapping followed by local refinement.
-BL_FA_COARSE_MIN = 0.10
-BL_FA_COARSE_MAX = 0.90
-BL_FA_COARSE_STEP = 0.10
-BL_FA_FINE_STEP = 0.01
-BL_FA_FINE_HALF_WIDTH = 0.10
+# Script 06 gas seeds use the DAPall row matching this observation and analysis.
+# If Plate-IFU is unset, use TARGET_NAME when it is a MaNGA Plate-IFU.
+MANGA_PLATEIFU = None
+MANGA_DAPTYPE = "HYB10-MILESHC-MASTARSSP"
+# Optional manual overrides in km/s. Use the CRD_DAP rest-frame velocity
+# convention and an instrument-corrected gas dispersion.
+MANGA_GAS_V_SEED_KMS = None
+MANGA_GAS_SIGMA_SEED_KMS = None
 
-# If the selected RH3 basin is small enough, evaluate every state exactly.
-N_DIRECT = 200
+# Rest-frame filter for the model stellar mass-to-light ratios.
+BL_MASS_TO_LIGHT_BAND = "SDSS/g"
 
-# Otherwise draw RH3 states according to normalized RH3 relative-likelihood
-# weights and increase the cumulative sample until population summaries are
-# stable. These are numerical-analysis defaults, not physical assumptions.
-RH3_SAMPLE_BATCH_SIZE = 500
-RH3_MIN_DRAWS = 1000
-RH3_MAX_DRAWS = 20000
-N_CONSECUTIVE_CONVERGENCE = 3
-CONVERGENCE_FRACTION_OF_CI = 0.05
-CONVERGENCE_FLOOR_LOGAGE = 0.005
-CONVERGENCE_FLOOR_METALLICITY = 0.005
-CONVERGENCE_FLOOR_FA = 0.005
+# Optional native BL standards for the separate Script 06 PSF QA phase.
+BL_PSF_STANDARD_CUBES = ()
+BL_PSF_OBSERVED_RANGE_ANGSTROM = None  # None uses the observed BL reference band.
+
+# Requested fit range and fixed stellar fraction normalization, in the XSL
+# rest-frame wavelength medium. Preflight shows the measured usable fit range.
+BL_FIT_REST_RANGE_ANGSTROM = (3700.0, 5350.0)
+BL_FRACTION_REST_RANGE_ANGSTROM = (4800.0, 5300.0)
+BL_LOG_REBIN_MIN_VALID_FRACTION = 0.50
+BL_FRACTION_CONSTRAINT_TOLERANCE = 1.0e-5
+BL_MASK_OBSERVED_RANGES_ANGSTROM = []
+BL_MASK_REST_RANGES_ANGSTROM = []
+BL_OPTIONAL_GAS_LINES = []
+
+# MaNGA DR17 pPXF gas search limits relative to the initial gas velocity.
+BL_GAS_V_HALF_RANGE_KMS = 2000.0
+BL_GAS_SIGMA_MIN_PIXELS = 0.01
+BL_GAS_SIGMA_MAX_KMS = 1000.0
+
 RANDOM_SEED = 12345
 
 # =============================================================================
 # 14. SCRIPT 7: MONTE CARLO / SYSTEMATIC UNCERTAINTIES
 # =============================================================================
 
-# End-to-end MC count is deliberately convergence-controlled. These are starting
-# values only; a runtime benchmark should be performed after one full nominal
-# pipeline run before the final publication calculation.
-MC_MIN_REALIZATIONS = 200
-MC_BATCH_SIZE = 50
-MC_MAX_REALIZATIONS = 2000
-MC_CONSECUTIVE_CONVERGENCE = 3
+# Count accepted draws only. Rejected attempts remain in the draw audit.
+SCRIPT07_N_DRAWS = 100
+SCRIPT07_MAX_CONSECUTIVE_REJECTIONS = 10
+SCRIPT07_RANDOM_SEED = 20261114
 
 # Number of parallel workers. None means choose at runtime / command line.
 N_WORKERS = None
