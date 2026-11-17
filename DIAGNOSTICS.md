@@ -544,269 +544,55 @@ Read `products/RH3_global_kinematics.ecsv` for the adopted bin values and flags.
 
 # Script 6 — RH3-anchored BL stellar populations
 
-**Current design, 2026-10-26:** retain the anchored population fit at the exact selected RH3 kinematics, with independent BL fractions and population mixtures. The basin-propagated and local joint-kinematic alternatives below are historical proposals and are not part of nominal Script 06. Two-component spectral and coherent-model uncertainty propagation belongs to Script 07; see METHODS sections 8-10.
+## `BL_line_review.pdf` and `BL_line_coverage.ecsv`
 
-## `BL_primary_spectral_fit.png`
+The top panel sums eligible BL aperture spectra on the shared native wavelength grid and uses one display normalization. A coverage strip shows how many bins contribute at each channel. The zoom panels label the proposed gas lines, show nominal cores and allowed gas line centers, and shade incomplete coverage. The table gives the nominal core coverage for every eligible bin and candidate line, including optional lines. The PDF is a preflight review of line placement and masks. Inspect the per-bin fit residuals to assess how well the gas and stellar templates reproduce the actual line shapes.
 
-**Script:** 06  
-**Class:** major per-bin science diagnostic
+## `BL_stellar_PSF_QA.pdf`
 
-### Purpose
+The optional standard-star phase displays the BL stellar image, Gaussian and Moffat residuals, and radial profiles. The companion JSON gives per-exposure and median larger-axis widths. Use these measurements as a comparison with the RH3 standard-star results in the final science report.
 
-Shows the RH3-anchored BL population fit at exact best RH3 kinematics.
+## `BL_fraction_bins/bin_NNNN.pdf`
 
-### Panels
+One PDF per scanned bin shows the 99-point fraction profile, missing fractions, the best available BL spectrum decomposition, and residuals on the approved pixels. The profile uses the calibrated χ² scale where available. The BL line components are distinct from the two stellar disks. The corresponding NPZ also contains the age–metallicity weights, age-binned formed-mass histories, gas kinematics and every attempt record.
 
-- observed BL spectrum;
-- total model;
-- Disk A stellar contribution;
-- Disk B stellar contribution;
-- gas contribution where present;
-- residuals.
+## `BL_stellar_populations.pdf`
 
-### Interpretation
-
-The two stellar model components should combine smoothly without one component being used to fit isolated noise spikes. Residuals should not show broad template mismatch.
-
----
-
-## `BL_joint_profile_spectral_fit.png`
-
-Same display as the primary fit, but using the deterministically refined minimum of the joint RH3+BL profile statistic.
-
-Comparing this plot with `BL_primary_spectral_fit.png` helps determine whether allowing RH3-supported kinematic movement changes the population decomposition visibly.
-
----
-
-## `BL_emission_model.png`
-
-**Script:** 06  
-**Class:** QC
-
-### Purpose
-
-Shows fitted gas emission separately from the stellar components. Particularly important around Hβ and other blue emission features that could bias age-sensitive absorption features.
-
-### Important
-
-Gas-template weights are excluded from \(f_{A,\mathrm{BL}}\).
-
----
-
-## `BL_fit_residuals.png`
-
-**Script:** 06  
-**Class:** critical QC
-
-Residual spectrum, ideally with normalized residuals and masked regions indicated. Used to diagnose template mismatch, insufficient polynomial treatment, emission residuals, and noise-scale problems.
-
----
-
-## `BL_fA_profile.png`
-
-**Script:** 06  
-**Class:** major inference diagnostic
-
-### Purpose
-
-Shows the profile joint statistic or BL statistic versus explicit stellar \(f_{A,\mathrm{BL}}\) for the anchored and/or joint-profile solution.
-
-### Coarse/fine display
-
-Plot coarse 0.1-step evaluations and fine 0.01-step refinement distinctly so the viewer can see that the final fraction is not a coarse-grid artifact.
-
----
-
-## `BL_fA_marginalized_distribution.png`
-
-**Script:** 06  
-**Class:** major inference diagnostic
-
-### Purpose
-
-Shows the RH3-likelihood-propagated support for \(f_{A,\mathrm{BL}}\) after integrating/reweighting over the sampled RH3-supported kinematic family.
-
-### Report
-
-- mode;
-- median;
-- 16th/84th percentiles;
-- anchored best fraction;
-- joint-profile best fraction.
-
-### Terminology
-
-Use “likelihood-propagated distribution” or equivalent unless the implementation has become a formal Bayesian posterior.
-
----
-
-## `RH3_BL_joint_likelihood.png`
-
-**Script:** 06  
-**Class:** methods/science diagnostic
-
-### Purpose
-
-Visualizes how BL information modifies the RH3-supported solution family.
-
-### Suggested view
-
-Profiled \((V_A,V_B)\) RH3 contours with markers for:
-
-- RH3 global anchor;
-- RH3 basin minimum;
-- best sampled joint state;
-- deterministically refined joint profile state.
-
-Optional joint-likelihood contours may be shown only with precise documentation of how the RH3 sampling/reweighting is represented.
-
----
-
-## `RH3_to_joint_kinematic_shift.png`
-
-**Script:** 06  
-**Class:** robustness QC
-
-Maps the differences between exact RH3-anchored kinematics and the joint-profile kinematics selected after BL information is allowed to act within the RH3-supported family.
-
-Large coherent shifts deserve inspection.
-
----
-
-## `joint_profile_refinement_path.png`
-
-**Script:** 06  
-**Class:** optimizer QC
-
-### Purpose
-
-Shows the deterministic local descent path used to find the exact discrete joint-profile minimum starting from the best sampled state.
-
-### Display
-
-On a suitable 2-D projection of the RH3 basin, mark:
-
-- starting sampled cell;
-- successive lower-\(J\) neighboring cells;
-- final local joint minimum.
-
-### Interpretation
-
-A short path means the sampling already found the neighborhood well. A very long path may indicate a broad shallow valley or insufficient sampling coverage.
-
----
-
-## `BL_sampling_convergence.png`
-
-**Script:** 06  
-**Class:** critical QC
-
-### Purpose
-
-Demonstrates that likelihood-propagated population summaries stabilize as more RH3-weighted draws are added.
-
-### x-axis
-
-Cumulative number of RH3 draws.
-
-### y-series
-
-Separate panels or figures for:
-
-- \(\log Age_A\), \(\log Age_B\);
-- \([M/H]_A\), \([M/H]_B\);
-- \(f_{A,\mathrm{BL}}\);
-- \(\Delta\log Age\);
-- \(\Delta[M/H]\).
-
-Show median and optionally 16th/84th percentiles.
-
-### Convergence markers
-
-Mark each batch check as pass/fail and the point where the required number of consecutive passes is achieved.
-
-### Critical interpretation
-
-Each plotted point uses **all draws accumulated up to that point**, not just the newest batch.
-
----
-
-## `BL_sampling_effective_sample_size.png`
-
-**Script:** 06  
-**Class:** sampling QC
-
-### Purpose
-
-Tracks effective sample size as BL likelihood reweights the RH3-drawn state ensemble.
-
-A very low effective sample size means the final joint result is dominated by a small number of sampled states and may require more draws or broader direct evaluation.
-
----
-
-## `BL_unique_cells_vs_draws.png`
-
-**Script:** 06  
-**Class:** computational + likelihood-concentration diagnostic
-
-### x-axis
-
-Cumulative RH3 draws.
-
-### y-axis
-
-Number of unique RH3 basin cells encountered/evaluated.
-
-### Interpretation
-
-Rapid plateau at a small number of unique cells indicates strongly concentrated RH3 support; nearly linear growth indicates a broad distribution.
-
----
-
-## `BL_population_stability_age.png`
-
-**Script:** 06  
-**Class:** robustness diagnostic
-
-Shows how inferred ages vary across the RH3-supported kinematic states and BL fractions, weighted or marked by joint support.
-
-Purpose: demonstrate whether age conclusions are stable against the remaining RH3 kinematic uncertainty.
-
----
-
-## `BL_population_stability_metallicity.png`
-
-Same philosophy for metallicity.
-
----
-
-## `BL_template_weight_A.png` / `BL_template_weight_B.png`
-
-**Script:** 06  
-**Class:** population QC/science diagnostic
-
-### Purpose
-
-Shows SSP weight distribution over age-metallicity space for each disk for selected fits.
-
-### Warning signs
-
-Weights pile against the oldest/youngest or highest/lowest metallicity template-grid boundary.
-
----
-
-## `BL_template_grid_edge_flags.png`
-
-**Script:** 06  
-**Class:** critical QC map
-
-Spatially maps bins with `AGE_GRID_EDGE_*` or `METALLICITY_GRID_EDGE_*` flags.
-
-A coherent region of boundary hits may indicate the SSP library does not span the required populations.
+The map sheet shows Disk A, Disk B and A minus B for light-weighted arithmetic age, light-weighted metallicity, stellar mass-to-light ratio and BL stellar light contribution. In the light row, Disk A shows the fitted fraction `FA_BL` and Disk B shows its complement. The difference is measured in percentage points, with zero marking equal contributions in the configured BL reference band. Dark gray marks eligible bins without a usable BL fit. Pale gray marks bins without an eligible RH3 anchor. Use the ECSV table to distinguish partial profiles, boundary weights, multiple minima and inherited Script 05 flags.
 
 ---
 
 # Script 7 — final science maps, uncertainties, robustness, and runtime
+
+Script 07 creates no per-draw plots. It publishes the following figures once the accepted ensemble is complete. The companion ECSV tables supply the nominal values, sample standard deviations, 16th and 84th percentiles, and usable-draw counts. A missing uncertainty can indicate fewer than two usable draws.
+
+## `major_axis_rotation_curves.pdf`
+
+The signed major axis shows the LOS velocities in both disks relative to their systemic velocity, over the range of the plotted bin offsets. Gray bars show the sample standard deviations of the projected bin velocities behind their nominal markers. The coherent curves show 16th–84th percentile bands derived by projecting each draw's fitted disk model. The curves describe the unblurred major axis and the bin markers come from the adopted spatial model including the PSF when used.
+
+## `RH3_science_maps.pdf` and `RH3_uncertainty_maps.pdf`
+
+The columns show Disk A, Disk B and the combined stellar line profile. The combined velocity and dispersion use the same light-weighted moments as Script 05. The dispersion includes broadening from the velocity separation of the two disks. All three science panels in each row share an RdBu color scale. The viridis uncertainty maps show the sample standard deviation of each quantity calculated within each draw.
+
+## `BL_science_maps.pdf` and `BL_uncertainty_maps.pdf`
+
+Maps of age, metallicity, M/L and light contribution with Disk A, Disk B and A minus B. Fractions refer to the fixed BL stellar reference band. The Disk A and B science panels use cool for age, winter for [M/H], pink for M/L and bone for light fraction, with matched limits within each pair. The third column uses cividis in both the science and uncertainty maps. The uncertainty maps show the draw-to-draw standard deviations, including paired disk contrasts.
+
+## `radial_stellar_populations.pdf`
+
+Nominal BL light-weighted ages and metallicities in fixed deprojected radial bins, with paired 16th–84th percentile bands for both disks. Gray error bars give the sample standard deviation of each radial point across draws. The radial table records boundaries and usable-draw counts.
+
+## `integrated_BL_RH3_spectrum.pdf`
+
+Observed, fitted, Disk A and Disk B spectra on rest-frame vacuum wavelength axes, with gas shown where modeled. Summed flux densities use the matched nominal aperture and the restored spectral scales. The saved arrays record the number of contributing bins at each wavelength. The side-by-side panels show each arm with markers for stellar absorption features in its fitted range. Gray dotted wavelength markers identify lines with a masked center. The red panel notes when the Ca II triplet falls outside the fitted range. The lower panel repeats the stellar line markers on a broken wavelength axis with the same Å per unit width on both sides. Semi-transparent green dots show observed minus total fit at their original values on the shared flux scale, with a dashed zero line. The BL gas spectrum is drawn in orange above the dots. The NPZ stores the same residual values.
+
+## Draw and systematic diagnostics
+
+Draw audit records include recovered geometry and velocities, rejected-bin IDs, restart flags, recovery choices, and acceptance reasons. These records remain after scratch cleanup. The optional Kroupa comparison supplies numerical shifts on common usable bins. Other method-comparison and spatial-significance figures remain candidates for later analysis.
+
+## Earlier figure sketches
+
+The section below retains the individual map names and additional robustness diagnostics discussed during planning. The implemented export above groups the main maps into panels, and uses a fixed accepted-draw count.
 
 ## `final_VA_map.png` / `final_VB_map.png`
 
@@ -1020,6 +806,7 @@ Potential quantities include the fraction of MC/likelihood-propagated realizatio
 
 ---
 
+
 # Runtime / computation diagnostics
 
 ## `MC_runtime_scaling.png`
@@ -1081,7 +868,7 @@ Before a final science run is accepted, the user should be able to answer all of
 13. Are the one-vs-two-component results reliable under matched mock calibrations?
 14. Do BL spectral residuals, gas fits, and template weights look physically reasonable?
 15. Are BL fractions and stellar-population results stable when RH3 kinematic uncertainty is propagated?
-16. Did likelihood-weighted Script-6 sampling converge, and is effective sample size adequate?
+16. Did Script 06 finish the approved fraction profiles, and are incomplete or boundary-limited populations visible in the handoff?
 17. Are age/metallicity results limited by SSP-template boundaries?
 18. Did the end-to-end Monte Carlo uncertainty calculation converge?
 19. Are the principal science conclusions robust to important analysis choices and SPS assumptions?

@@ -1,6 +1,6 @@
 # CRD_DAP pipeline calls
 
-Quick reference for **DAP Scripts 01–05**. Mac / Bash calls are the default;
+Quick reference for **DAP Scripts 01–07**. Mac / Bash calls are the default;
 Windows / PowerShell equivalents are in their own section.
 
 Scripts 01–03 follow the DAP handoff calls at the bottom of
@@ -17,7 +17,7 @@ The target config must point to the matching science/noise products.
 
 ```bash
 export DAP=/Users/maxpiper/CRD_DAP
-export DAP_PY=/Users/maxpiper/miniforge3/envs/crd_dap/bin/python
+export DAP_PY=/Users/maxpiper/miniforge3-arm64/envs/crd_dap/bin/python
 export CONFIG="$DAP/config/8143-1902.py"
 export REDUCTION_MANIFEST=/Users/maxpiper/CRD_DRP/validation_products/03_reduction_package_red_zap/CRD_DRP_reduction_manifest.json
 
@@ -154,6 +154,47 @@ Use the selected model saved by Script 04. Keep the same terminal available if y
 
 Append `--resume` to this call after interruption. Use `--non-interactive` for unattended initial scans. When a run exits with status 2, remove `--non-interactive` and resume in a terminal to review the saved decisions.
 
+### 06 — BL line review and stellar populations
+
+Use the completed Script 05 handoff and the matching Script 01–02 runs. Set `MANGA_DAPALL` or both manual gas seeds in the target config. This example points to the completed local test products.
+
+```bash
+export SCRIPT1_RUN="$DAP/runs/run1"
+export SCRIPT2_RUN="$DAP/runs/run2"
+export SCRIPT05_DIR="$DAP/runs/run5"
+export SCRIPT06_DIR="$DAP/runs/run6"
+
+"$DAP_PY" "$DAP/scripts/06_fit_BL_two_component_populations.py" \
+  --config "$CONFIG" --script5-run "$SCRIPT05_DIR" --output-dir "$SCRIPT06_DIR" \
+  --script1-run "$SCRIPT1_RUN" --script2-run "$SCRIPT2_RUN" --phase review
+```
+
+Open `figures/BL_line_review.pdf` when prompted. Approve the proposal, or edit `metadata/BL_line_review.json` and select reload to see the revised preview. A mask entry contains `frame` (`observed` or `rest`), `interval` (two wavelengths in Å), `bins` (`null` for all bins or a list of bin IDs), and `reason`. Remove a name from `lines` to remove its gas template. Use a mask entry to exclude the actual pixels. Keep or remove the tied [O III] pair together.
+
+```bash
+"$DAP_PY" "$DAP/scripts/06_fit_BL_two_component_populations.py" \
+  --config "$CONFIG" --script5-run "$SCRIPT05_DIR" --output-dir "$SCRIPT06_DIR" \
+  --script1-run "$SCRIPT1_RUN" --script2-run "$SCRIPT2_RUN" --phase fit --workers 4
+```
+
+Append `--resume` after interruption. Use `--non-interactive` during fitting to save grouped retries for a later terminal session. For review on a headless host, run `--phase review --non-interactive`, open the preview, then run the review call again with `--approve-review`. To measure the optional BL standard-star PSF, run the same command with `--phase psf` after setting `BL_PSF_STANDARD_CUBES`.
+
+### 07 — Monte Carlo uncertainties and final figures
+
+Use matching completed Scripts 01–06. Point the run variables to your actual directories.
+
+```bash
+export SCRIPT07_DIR="$DAP/runs/8143-1902_uncertainties07"
+
+"$DAP_PY" "$DAP/scripts/07_uncertainties_and_final_maps.py" \
+  --config "$CONFIG" --output-dir "$SCRIPT07_DIR" \
+  --script1-run "$SCRIPT1_RUN" --script2-run "$SCRIPT2_RUN" --script3-run "$SCRIPT3_RUN" \
+  --script4-run "$SCRIPT04_DIR" --script5-run "$SCRIPT05_DIR" --script6-run "$SCRIPT06_DIR" \
+  --workers 4
+```
+
+Add `--validate-inputs` to verify the handoffs without starting draws. Add `--resume` after interruption or after reviewing a rejection pause. Add `--non-interactive` to move on from failed fractions without prompting. To test the workflow with fewer accepted draws, use `--draws N` and a separate output directory. An optional `--kroupa-library PATH` adds a separate nominal BL sensitivity refit.
+
 ## Windows: PowerShell
 
 These use `C:/Users/maxhi/CRD_DAP` and the run names recorded in your Windows
@@ -284,6 +325,38 @@ python "$Dap/scripts/05_extract_global_RH3_solution.py" `
 
 Use the same output directory with `--resume` to continue saved work.
 
+### 06 — BL line review and stellar populations
+
+Set the catalog and any BL standard paths in the Windows config. Use the same Script 05 and Script 01–02 run directories from your Windows analysis.
+
+```powershell
+$Script06Dir = "$Dap/runs/8143-1902_population06"
+
+python "$Dap/scripts/06_fit_BL_two_component_populations.py" `
+  --config "$Config" --script5-run "$Script05Dir" --output-dir "$Script06Dir" `
+  --script1-run "$Script1Run" --script2-run "$Script2Run" --phase review
+
+python "$Dap/scripts/06_fit_BL_two_component_populations.py" `
+  --config "$Config" --script5-run "$Script05Dir" --output-dir "$Script06Dir" `
+  --script1-run "$Script1Run" --script2-run "$Script2Run" --phase fit --workers 4
+```
+
+The review, resume and optional PSF QA arguments are the same as on Mac.
+
+### 07 — Monte Carlo uncertainties and final figures
+
+```powershell
+$Script07Dir = "$Dap/runs/8143-1902_uncertainties07"
+
+python "$Dap/scripts/07_uncertainties_and_final_maps.py" `
+  --config "$Config" --output-dir "$Script07Dir" `
+  --script1-run "$Script1Run" --script2-run "$Script2Run" --script3-run "$Script3Run" `
+  --script4-run "$Script04Dir" --script5-run "$Script05Dir" --script6-run "$Script06Dir" `
+  --workers 4
+```
+
+The validation, recovery, and resume switches are the same as on Mac.
+
 ## Updated Script 04 search
 
 The shared-start refinement and log-header update changes the search fingerprint. Use a fresh Script 04 output directory, run its PSF phase and repeat the Script 04 commands above; the existing Scripts 01-03 runs remain the inputs. Keep old runs intact and do not edit their fingerprints. Within the new run, `--resume` reuses matching completed fits while allowing additional refinement when a newly available compatible state scores better. `SCRIPT04_SHARED_REFINEMENT_PASSES` is a config numerical budget (default 3); unfinished checks are flagged. Candidate sharing never crosses radial-domain/PSF/node-grid boundaries.
@@ -297,6 +370,8 @@ The shared-start refinement and log-header update changes the search fingerprint
 | 03 | Required: `--config`. Optional: `--script1-run`, `--script2-run`, `--run-name`, `--workers`, `--resume`. |
 | 04 | Required: `--config`, `--output-dir`. Options: `--phase`, `--script1-run`, `--script2-run`, `--script3-run`, `--psf-profile`, `--workers`, `--resume`, `--baseline-coefficient`, `--coefficient`, `--interactive`, `--model-name`, `--note`. |
 | 05 | Required `--config`, `--script4-run`, `--output-dir`. Optional `--script1-run`, `--script2-run`, `--script3-run`, `--workers`, `--resume`, `--non-interactive`. Upstream overrides are useful after relocating runs. |
+| 06 | Required: `--phase` (`review`, `fit`, or `psf`), `--config`, `--script5-run`, `--output-dir`. Optional: `--script1-run`, `--script2-run`, `--workers`, `--resume`, `--non-interactive`, `--approve-review`. |
+| 07 | Required: `--config`, `--script4-run`, `--script5-run`, `--script6-run`, `--output-dir`. Optional: `--script1-run`, `--script2-run`, `--script3-run`, `--workers`, `--draws`, `--resume`, `--non-interactive`, `--validate-inputs`, `--kroupa-library`. |
 
 - **Script 04 phases:** `psf`, `calibrate`, `review`, `compare`, `choose-model`.
   Except for `psf`, all three upstream-run paths and `--psf-profile` are currently
@@ -322,4 +397,4 @@ The shared-start refinement and log-header update changes the search fingerprint
   target config, not additional command-line flags.
 - **Full help:** append `--help` to the relevant script call.
 
-The Script 05 handoff is `products/RH3_global_kinematics.ecsv` and the associated per-bin fraction profiles. Scripts 06–07 are planned.
+The Script 05 handoff is `products/RH3_global_kinematics.ecsv` and the associated per-bin fraction profiles. The Script 06 handoff is `products/BL_stellar_populations.ecsv` with the BL spectra, templates and fraction profiles. Script 07 uses these handoffs and keeps the compact draw records, final tables, and publication figures in its own output directory.

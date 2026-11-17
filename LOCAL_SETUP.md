@@ -27,4 +27,6 @@ cd scripts
 python *specific pipeline script*.py --config */path/to/specific config*.py
 ```
 
-Use [PIPELINE_CALLS.md](PIPELINE_CALLS.md) for the implemented Scripts 01–05 and the [per-target checklist](CRD_DAP.md#per-target-config-checklist) when creating a config. Script 05 needs the selected Script 04 model and the saved Script 01–03 products.
+Use [PIPELINE_CALLS.md](PIPELINE_CALLS.md) for the implemented Scripts 01–06 and the [per-target checklist](CRD_DAP.md#per-target-config-checklist) when creating a config. Script 05 needs the selected Script 04 model and the saved Script 01–03 products.
+
+Script 06 reads the Script 05 handoff and the saved Script 01–02 BL products. Set `MANGA_DAPALL` to a local DR17 catalog, or supply both manual gas seeds.

@@ -2,13 +2,13 @@
 
 **CRD_DAP** is a research pipeline for decomposing counter-rotating stellar disks (CRDs) observed with Keck/KCWI/KCRM. The project is being developed around paired BL and RH3 observations and is designed to preserve as much of the spectral likelihood information as possible from the high-resolution RH3 kinematic fits before propagating those constraints into two-component stellar-population fits in BL.
 
-Scripts 01–05 implement cube preparation and registration, master BL PowerBins, independent RH3 likelihood cubes, coherent two-disk modeling and exact RH3 refits. METHODS describes the planned BL population and uncertainty stages.
+Scripts 01–06 implement cube preparation and registration, master BL PowerBins, independent RH3 likelihood cubes, coherent two-disk modeling, exact RH3 refits and fixed-kinematics BL population fitting. Script 07 propagates uncertainties through the nominal pipeline and exports publication tables and figures.
 
 **Production CRD_DAP runs begin from a validated `CRD_DRP` reduction package, not from arbitrary cube paths.** The upstream reduction pipeline must be completed first, and its `CRD_DRP_reduction_manifest.json` is the formal handoff contract between reduction and science analysis.
 
 ## Scientific design in one sentence
 
-The pipeline combines per-bin RH3 likelihoods in a coherent two-disk rotation model, refits the spectra at the selected velocities and passes the resulting kinematics to the planned BL population analysis.
+The pipeline combines per-bin RH3 likelihoods in a coherent two-disk rotation model, refits the spectra at the selected velocities and passes the resulting kinematics to the BL population analysis.
 
 
 ## Required upstream reduction: CRD_DRP
@@ -114,7 +114,8 @@ CRD_DAP/
 - **Script 03** fits independent RH3 likelihood cubes and saves the final scalar-calibrated errors, matched XSL templates and fitted-pixel masks.
 - **Script 04** fits and compares coherent two-disk models, then saves an explicitly selected model and its continuous bin velocities.
 - **Script 05** refits all 99 RH3 fractions at the selected velocities, saves restartable bin profiles and produces the best-state kinematic maps and two-sided velocity profile.
-- **Scripts 06–07** are planned for BL populations and uncertainties.
+- **Script 06** reviews BL gas-line coverage, evaluates all 99 BL fractions at fixed RH3 kinematics and saves the two disks’ population products and calibrated BL errors.
+- **Script 07** is planned for uncertainties, systematics and the final science package.
 
 ## Intended science scripts
 
@@ -198,13 +199,15 @@ Start from `config/target_config_template.py`. This checklist assumes the same B
 | `BL_ICUBE`, `BL_VCUBE`, `BL_MCUBE`, `BL_ECUBE`, `RH3_ICUBE`, `RH3_VCUBE`, `RH3_MCUBE`, `RH3_ECUBE` | Point to the target's matched flux, variance, mask and exposure stacks. Script 01 reads its science paths from `--reduction-manifest` when supplied. Scripts 02–03 currently perform strict config path checks, so populate these fields with existing matching files for the full workflow. |
 | `BL_NOISE_STACK_MANIFEST`, `RH3_NOISE_STACK_MANIFEST` | Supply the two noise replay manifests for the exact target stacks used by Script 01. |
 | `BL_MASTER_ARC`, `RH3_MASTER_ARC` | Select the arcs that match each arm's science setup. |
+| `MANGA_PLATEIFU`, `MANGA_DAPTYPE` | Script 06 looks up the gas seeds in the local DAPall catalog. The Plate–IFU defaults to `TARGET_NAME`. Review the analysis type and use the manual gas seed settings when needed. |
 | `PA_KIN_INITIAL_DEG`, `PA_KIN_ERR_DEG` | Supply the reviewed stellar kinematic PA, measured east of north, and its uncertainty in degrees. |
 | `MANGA_SIGMA_PEAK_POS_KMS`, `MANGA_SIGMA_PEAK_NEG_KMS`, `MANGA_SIGMA_BASE_KMS` | Supply instrumentally corrected peak dispersions and an underlying baseline in km/s. The peak dispersions must exceed the positive baseline. Script 04 uses them for initialization and Script 05 seeds both widths from the baseline, which must lie inside the adopted RH3 dispersion bounds. |
 | `R_2SIGMA_POS_INITIAL_ARCSEC`, `R_2SIGMA_NEG_INITIAL_ARCSEC` | Give positive projected distances from the center to the two dispersion peaks along the major axis. POS/NEG identify the sides. |
 | `SCRIPT04_PSF_STANDARD_CUBES` | Supply the reduced native standard-star cubes appropriate to the RH3 observations. Review the Gaussian/Moffat comparison and choose the profile at the command line. |
+| `BL_PSF_STANDARD_CUBES` | For optional BL PSF QA, supply the reduced native blue standard-star cubes. |
 | `SCRIPT04_PYMORPH_HDU` or `SCRIPT04_INCLINATION_BOUNDS_DEG` | Review the catalog band and disk axis ratio for the target. If using explicit bounds instead, optionally supply `SCRIPT04_INCLINATION_INITIAL_DEG`. The default initializer for explicit bounds is their midpoint. |
 
-Set `PYMORPH_VAC` and `XSL_TEMPLATE_LIBRARY` to valid local paths once per installation or dataset release. Multiple targets can share the same catalog and template archive. `PROJECT_ROOT` and `RUNS_ROOT` normally follow the checkout.
+Set `PYMORPH_VAC`, `XSL_TEMPLATE_LIBRARY` and `MANGA_DAPALL` to valid local paths once per installation or dataset release. Multiple targets can share the same catalog and template archive. `PROJECT_ROOT` and `RUNS_ROOT` normally follow the checkout.
 
 Review these fields when a target or observation calls for an override.
 

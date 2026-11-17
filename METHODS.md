@@ -804,13 +804,17 @@ Run all combinations of restricted/full extent, PSF off/on, and curvature off/on
 
 Use differential-evolution population exploration followed by multiple bounded Powell refinements of promising starts, evaluating the same objective throughout. Completed selected states and accepted local alternatives are shared only between fits with the same scientific fingerprint, radial extent, PSF setting, radial nodes and bin membership. Each candidate is rescored at the receiving fit's own coefficient; its old penalized score is never copied across coefficients. Shared candidates enter the population/local-start pool, and a local refinement cannot discard a better valid starting state. Save alternative local solutions, search histories, convergence/boundary flags, geometry, radial curves, per-bin LOS velocities, coarse fractions and scores. Numerical search budgets are configurable and their exhaustion remains visible. Search trajectories are not posterior draws or rotation-curve error bars.
 
+Restart Powell from the lowest-objective state after the original multi-start search and retain only finite improvements. For each node speed and each modeled bin's line-of-sight velocity, compute its maximum minus minimum over the last `SCRIPT04_POWELL_STABILITY_WINDOW` retained states (default four, counting the original winner initially). Check both disks and stop when the largest node-speed span is at most `SCRIPT04_POWELL_NODE_TOL_KMS` (3 km/s) and the largest projected span is at most `SCRIPT04_POWELL_LOS_TOL_KMS` (0.25 km/s). Begin testing as soon as the window is full. These tolerances were tested by replaying the same full, PSF-convolved smoothed development model from three fresh search seeds and a search initialized with the saved candidates. They measure changes within a search trajectory.
+
+Keep the best finite state if the search reaches `SCRIPT04_POWELL_MAX_RESTARTS` (default 100) or a restart fails to improve the objective. Record `KINEMATIC_RESTART_LIMIT_REACHED` or `KINEMATIC_RESTART_STALLED` respectively when the velocity criterion remains unmet. The original local alternatives remain in the fit record for comparison and candidate sharing.
+
 After each calibration or eight-model batch, cross-check each result against the saved compatible candidate pool, including earlier sweep ranges and archived pre-refinement states. Refit cases beaten by a known candidate, up to `SCRIPT04_SHARED_REFINEMENT_PASSES` passes (default 3). This is a numerical budget, not a physical prior or proof of the global optimum. Save candidate sources, per-fit checks and previous versions under `metadata/shared_start_history/`. If a better known state remains when the pass budget is exhausted, retain `SHARED_START_REFINEMENT_INCOMPLETE` and allow further work on resume. Candidate sets are frozen before dispatch so worker completion order does not change another job's starting pool.
 
 Parallelize independent entire fits, with one numerical-library thread per worker. A completed fit is an atomic checkpoint. Compatible completed fits are reused but still cross-checked when new shared candidates appear. Verify code/input/config fingerprints before reuse. Changed science inputs or search settings require a new output directory; explicit upstream paths support transferred Windows runs without rewriting original provenance.
 
 The user selects one of the eight models explicitly. The selected-model product points to its joint geometry/curves and bin predictions for exact Script-05 pPXF refits. Final uncertainties are a later inference task, conditional on the declared noise and spatial-model assumptions. Successful software tests do not establish that the low-quality development data constrain a physical solution.
 
-References and reusable BibTeX are retained in references/SCRIPT04_REFERENCES.md and references/script04.bib. The ring framework is inspired by [XookSuut](https://arxiv.org/abs/2110.05095); our spectral-cube objective and optimizer are a custom implementation, not that package's Bayesian machinery.
+The [Script 04 reference notes](references/SCRIPT04_REFERENCES.md) describe the design precedents. Reusable BibTeX is in [crd_dap.bib](references/crd_dap.bib). The ring framework is inspired by [XookSuut](https://arxiv.org/abs/2110.05095); our spectral-cube objective and optimizer are a custom implementation, not that package's Bayesian machinery.
 
 ---
 
@@ -833,9 +837,9 @@ A steep linear rise has zero second difference even if its slope is large. For e
 
 The global phase uses `SCRIPT04_GLOBAL_ITERATIONS` as a differential-evolution generation budget. Local refinement uses up to `SCRIPT04_LOCAL_STARTS` distinct starting states, each with its own `SCRIPT04_LOCAL_ITERATIONS` Powell budget. These optimizer operations are not all the same unit. Defaults of 80 global generations and four local starts do not imply that the combined `step` counter stops at 80.
 
-The current implementation prints the first valid callback and then every fifth combined history entry. It also appends accepted local-result records to the saved history without necessarily printing a matching progress line. Moving to another local starting state can raise the displayed cost; the trace is not a monotonic global-best record. The final fit selects the best accepted local alternative, so the last printed line need not be the selected solution.
+The implementation prints the first valid callback and then every fifth combined history entry. It also appends accepted local-result records to the saved history without necessarily printing a matching progress line. Moving to another local starting state can raise the displayed cost. The fit saves the lowest objective reached.
 
-The progress trace currently does not explicitly label the global/local phase or local-start number, print every trial/evaluation, or include the complete radial curves. Read the main log's completion summary and the saved `fits/<fit_name>.json` for the selected parameters, alternatives, histories, convergence flags, per-bin predictions and separate objective terms. An optimizer trajectory is not a posterior sample or an uncertainty interval.
+The Powell restart lines report the restart number, whether it improved the objective, the retained and trial objectives, and the rolling node and projected velocity spans in km/s. Spans are populated once the window is full. The final line reports the stopping reason. Read the saved `fits/<fit_name>.json` for the selected parameters, alternatives, histories, convergence flags, per-bin predictions, separate objective terms, and the `kinematic_refinement` audit.
 
 `GLOBAL_SEARCH_BUDGET_REACHED` means differential evolution did not declare success within its search budget; it is not a program crash or a proof of a global optimum. `LOCAL_OPTIMIZER_NOT_CONVERGED` marks an unsuccessful selected local refinement. `GEOMETRY_BOUNDARY` identifies a fitted geometry parameter near a hard bound; `ROTATION_SPEED_BOUNDARY` and `ROTATION_SPEED_CEILING` do the same for speed limits. Inspect these alongside the saved solutions rather than changing bounds solely to remove flags.
 
@@ -845,7 +849,7 @@ Fit progress logs and the main log append across attempts. Use timestamps and re
 
 **Implemented 2026-10-26.** Every new independent fit attempt starts with field definitions, including the geometry order/units, `objective = Qdata + P` and the meaning of the combined progress counter. It also records the initial population size, shared-candidate count and best initial objective. Existing append-mode log records are not rewritten.
 
-The shared-start refinement and log header change hashed optimizer/driver code. Preserve earlier runs as historical products and use a new Script 04 output directory for the updated search; do not rewrite old fingerprints or mix old/new fit checkpoints. Scripts 01-03 do not need rerunning. Run the PSF phase in the new directory, then repeat calibration, coefficient review, comparison and model selection using the original upstream products. Subsequent `--resume` calls within that new, matching run reuse completed fits and continue any necessary shared-start refinement.
+The shared-start refinement, log header, and Powell stability check change hashed optimizer/driver code. Use a new Script 04 output directory to run the updated search on the original Scripts 01–03 products. Run the PSF phase in the new directory, then repeat calibration, coefficient review, comparison and model selection. Subsequent `--resume` calls within that new, matching run reuse completed fits and continue any necessary shared-start refinement.
 
 ---
 
@@ -887,269 +891,101 @@ Review the 99-point profile, residuals, optimizer status, dispersion-boundary fl
 
 # 9. Script 6 — BL two-component stellar populations
 
-## 9.0 Planned execution walkthrough - not implemented
+## 9.0 Execution walkthrough
 
-Planned driver: `scripts/06_fit_BL_two_component_populations.py`; it does not yet exist. **Design locked 2026-10-26:** the nominal population analysis uses the exact RH3 handoff from Script 05. The basin-propagated and locally adjusted joint RH3+BL products described historically below are removed from the adopted plan. BL does not independently adjust the coherent velocity field.
+The driver `scripts/06_fit_BL_two_component_populations.py` fits the BL spectra conditional on the exact Script 05 stellar kinematics. Each bin retains its original ID and disk labels. The same two velocities and dispersions are fixed at every fraction. The BL fraction and stellar mixtures are determined by the blue data.
 
-1. **Load the paired spectra and selected exact RH3 solution.** Use the same modeled bins and permanent component identities, including the restricted membership when that model was selected.
-2. **Check the observational handoff.** Respect each arm's LSF/template matching and assess differences in effective spatial weighting/PSF. Matching apertures alone does not guarantee identical effective LOSVDs; any necessary transfer treatment must be explicit and preserve the selected global model.
-3. **Fit populations conditional on RH3.** Fix the RH3 velocities and refined dispersions; fit separate BL population mixtures, the independently defined BL stellar-light fraction and gas where relevant, under the adopted continuum conventions.
-4. **Profile the BL light fraction and save the anchored result.** Retain fit status, component spectra, template weights, residuals and support warnings. Do not search independent RH3 basins or let BL redefine individual bin velocities.
-5. **Hand off to Script 07.** Preserve the inputs/models needed to propagate spectral and coherent-model uncertainties rather than presenting the nominal fixed-kinematics result as uncertainty-free.
+1. **Verify the handoff.** Read the completed Script 05 table, the matched Script 02 BL spectra and membership, and the prepared Script 01 BL wavelength grid and empirical LSF. Preserve Script 05 flags and fit only bins in the selected model with usable RH3 kinematics and valid BL inputs.
+2. **Prepare the line review.** Sum the eligible aperture spectra on the native observed grid, retaining the original flux scales and showing the number of contributors per channel. Shift the line list to the target redshift and check nominal core coverage per bin. The review PDF displays the proposed gas lines, fitting band, reference band, available pixels and velocity search span. Approve the proposal or edit the saved JSON and regenerate the preview.
+3. **Prepare the BL fit.** Rebin the BL spectrum and spatially calibrated error to a common rest-frame log grid. Use the inherited quality and atmospheric masks plus approved exclusions. Match the XSL templates to the measured BL instrumental resolution and prepare gas templates. Preserve the empirical LSF domain and the wavelength support needed by the fixed stellar kinematics. The actual fit range may be narrower than the requested range.
+4. **Evaluate the full BL fraction grid.** Fit all 99 fractions from 0.01 to 0.99. Each initial trial uses the same approved pixels, fixed stellar kinematics and MaNGA gas seed. Save each bin atomically as soon as its scan returns. In a terminal, the progress bar refreshes while workers run and clears for recovery prompts.
+5. **Review grouped recovery.** A failed or non-converged fraction is recorded with its reason. Retry the pending group using the latest starts, enter a new gas start for that group, or move on while retaining usable states. Each fraction has up to three recovery attempts after its initial fit. An unattended fit saves unresolved decisions and exits with status 2. Resume in a terminal with the same reviewed output directory.
+6. **Calibrate and summarize.** Select the best available unregularized fit, apply the BL residual scalar once, and summarize both disks' stellar populations and flags. Write a table, the spectra and noise arrays, the BL template basis, per-bin fit profiles, and diagnostic figures for review and Script 07.
 
-## 9.1 BL stellar-light fraction definition
+## 9.1 Fitting band, line coverage and approved masks
 
-Define the BL fraction over the globally adopted usable BL fitting band after consistent template normalization:
+The requested BL fitting interval defaults to 3700–5350 Å in the XSL rest-frame medium. The fixed 4800–5300 Å reference band defines the light-fraction weights for every bin. It is independent of the wider interval used to fit the populations. Templates are matched to the empirical BL LSF. Stellar wavelength padding follows the fixed Script 05 velocities and dispersions, and separate numerical padding accommodates the wider gas bounds. The optional `--phase psf` measures the BL standard cubes with the same Gaussian/Moffat helper as Script 04 and saves QA for the final science package. The nominal BL population fit uses the Script 05 kinematics directly.
 
-$$
-f_{A,\mathrm{BL}}=\frac{\sum_jw_{A,j}}{\sum_jw_{A,j}+\sum_jw_{B,j}}.
-$$
+The inherited BL mask comes from Script 02. Additional intervals in the review JSON have a wavelength frame, endpoints, an optional list of original bin IDs and a reason. Observed intervals use the observed science wavelength medium. Rest intervals use the XSL template medium. A proposed gas line is usable when at least half of the nominal core and at least two fitted log pixels are available. The core is one FWHM wide, including the measured BL LSF and the MaNGA seed dispersion. The wider gas center excursion is shown separately. Partial coverage is recorded per bin. The approved pixel mask is fixed across all fractions.
 
-The fraction is purely stellar. Gas-template weights are excluded.
+## 9.2 Gas and continuum
 
-Because the two disks may have different stellar populations,
+The core list is [O II] 3726/3729, Hδ, Hγ, Hβ, [O III] 4959/5007 and [N I] 5198/5200. Higher Balmer lines, [Ne III] and He II are available for review. The [O III] doublet uses the MaNGA DR17 flux ratio and a shared template. Other gas amplitudes are independent, with one gas velocity and dispersion per bin. Templates with usable cores enter the fit and the inherited mask still controls which pixels are scored. Gas templates are matched to the BL LSF.
 
-$$
-f_{A,\mathrm{BL}}\ne f_{A,\mathrm{RH3}}
-$$
+One target-wide gas seed is taken from the matching local MaNGA DR17 DAPall row. Convert central `HA_Z` to the configured pPXF rest frame and use the already instrument-corrected `HA_GSIGMA_1RE`. The velocity bounds are ±2000 km/s around that seed by default. The dispersion runs from 0.01 BL log pixels to 1000 km/s by default. The bounds and manual gas seeds are configurable. Each trial fits one shared eighth-order multiplicative polynomial for the two stellar components by default through `BL_MDEGREE = 8`. The nominal fit has no additive polynomial and uses `BL_REGUL_LIKELIHOOD = 0`.
 
-is physically allowed and potentially informative.
+## 9.3 BL fraction and noise
 
-## 9.2 Gas emission
+Each XSL SSP is normalized to unit mean flux in the fixed reference band before the template library is copied to the two disks. The adopted BL fraction is the sum of Disk A stellar weights divided by the sum of both disks' stellar weights. It excludes gas and is independent of the RH3 light fraction. Save the imposed and returned BL fractions and verify their agreement before accepting a score.
 
-Fit gas emission simultaneously in BL where relevant:
+Start with Script 02's BL errors, which already include the spatial scalar. From the minimum unregularized fit measure the BL residual scalar as 1.4826 times the median absolute deviation of error-normalized residuals on the approved pixels. Multiply the spatially calibrated errors by this positive scalar, including values below one, and divide all of the bin's scores by its square. The uniform rescaling preserves the minimum. Save both error vectors and the scalar. An undefined scalar is flagged and leaves the calibrated errors and scores missing. The diagonal noise approximation leaves wavelength correlations outside the adopted model.
 
-$$
-F_{\mathrm{model}}=F_{\star,A}+F_{\star,B}+F_{\mathrm{gas}}.
-$$
+## 9.4 Population summaries
 
-Gas has its own kinematics and does not contribute to the stellar disk light fraction.
+The nominal fit uses the configured XSL Salpeter templates for both disks. Retain the full age and metallicity grid. Save both a weighted arithmetic age in Gyr and a weighted mean log10 age in years, plus weighted metallicity on the template library axis. Report these statistics using reference-band light weights and surviving mass weights. Report Disk A minus Disk B for the corresponding summaries.
 
-## 9.3 Continuum treatment
+Undo the SSP light normalization to obtain formed-mass weights. Multiply by the SSP surviving mass fraction, which includes remnants, for the surviving-mass statistics. Compute each disk's stellar mass-to-light ratio in the configurable rest-frame filter, SDSS g by default, using synthetic filter luminosities of the original template mixture in solar units. Save the per-disk age–metallicity light, formed-mass and surviving-mass grids and the age-binned formed-mass history. These grids and histories describe the nominal unregularized solution.
 
-Keep additive and multiplicative polynomial choices explicit configuration parameters.
+## 9.5 Outputs and quality flags
 
-Baseline likelihood fit:
+`products/BL_stellar_populations.ecsv` gives the adopted kinematics, BL fraction and gas fit, calibrated score, population summaries and flags for every original bin. `products/BL_fraction_profiles/bin_NNNN.npz` holds all attempted fractions, fit scores, template and continuum weights, component and total spectra for each accepted state, recovery history and best-state population grids. `products/BL_log_spectra.npz` preserves the approved pixel masks, flux normalization, and both error vectors. `products/XSL_BL_templates.npz` records the matched basis and population metadata. The manifest records inputs, settings and review provenance. See DIAGNOSTICS for the figures.
 
-- no additive polynomial (`degree=-1`);
-- modest multiplicative polynomial, degree validated on mocks.
-
-The purpose is to absorb continuum/flux-calibration mismatch without allowing additive terms to arbitrarily alter absorption-line depths used for stellar-population inference.
-
-## 9.4 BL fraction search
-
-Use a two-stage explicit fraction search:
-
-1. coarse grid with approximately $\Delta f_A=0.1$;
-2. local refinement near the preferred region with approximately $\Delta f_A=0.01$.
-
-If the fine solution reaches the local refinement edge, expand automatically.
-
-## 9.5 Population products - anchored adopted; alternatives superseded
-
-### A. RH3-anchored solution
-
-Fix the exact global RH3 kinematics and fit BL populations while profiling the BL stellar fraction.
-
-This answers: **What populations are inferred if the best RH3 kinematics are adopted exactly?**
-
-### B. Historical RH3-likelihood-propagated solution - not adopted
-
-Propagate the selected RH3 basin's normalized relative-likelihood distribution into the BL analysis.
-
-This answers: **How do the BL population inferences change across the family of kinematic states supported by RH3?**
-
-### C. Historical local joint profile solution - not adopted
-
-Search for the lowest joint statistic
-
-$$
-J(c,f_{A,\mathrm{BL}})=\Delta\chi^2_{\mathrm{RH3},c}+\Delta\chi^2_{\mathrm{BL}}(c,f_{A,\mathrm{BL}})
-$$
-
-within the selected physical basin, with deterministic local refinement around the best sampled state.
-
-This gives the best discrete joint RH3+BL profile solution without relying on random sampling to happen to hit the exact local joint minimum.
-
-## 9.6 Direct evaluation versus likelihood-weighted sampling - historical basin proposal
-
-If the selected RH3 basin contains at most `N_DIRECT` cells (development default 200), evaluate every state exactly.
-
-If the basin is larger, draw RH3 states according to
-
-$$
-p_c\propto e^{-\Delta\chi_c^2/2}.
-$$
-
-Conceptually, each basin cell has “tickets” in proportion to its RH3 relative-likelihood weight.
-
-Every draw is independent from the same fixed RH3 distribution. The **draws themselves do not build on one another**. What accumulates is the population inference calculated from the cumulative draw ensemble.
-
-After each new sampling batch, recompute population summaries using **all draws obtained so far**.
-
-## 9.7 Avoid double-counting RH3 - historical basin proposal
-
-If states are drawn according to $p_{\mathrm{RH3}}(c)$, RH3 has already entered through the sampling frequency. Do **not** multiply each sampled draw by $L_{\mathrm{RH3}}$ again.
-
-A repeated cell may require only one expensive BL pPXF calculation; its multiplicity is retained when constructing the cumulative sample.
-
-## 9.8 BL weighting within sampled states - historical basin proposal
-
-For a sampled RH3 state, BL supplies
-
-$$
-L_{\mathrm{BL}}(c,f_A)
-\propto
-\exp\left[-\frac{\Delta\chi^2_{\mathrm{BL}}}{2}\right].
-$$
-
-Because the proposal draws already follow the RH3 distribution, the BL likelihood reweights the sampled ensemble toward the joint RH3+BL target.
-
-## 9.9 Sampling convergence - historical basin proposal
-
-After a minimum number of RH3 draws, add batches and recalculate the weighted 16th, 50th, and 84th percentiles of scientifically important quantities, including
-
-$$
-\log Age_A,\quad\log Age_B,
-$$
-
-$$
-[M/H]_A,\quad[M/H]_B,
-$$
-
-$$
-f_{A,\mathrm{BL}},
-$$
-
-$$
-\Delta\log Age,\quad\Delta[M/H].
-$$
-
-For each quantity, define the current 68% interval width
-
-$$
-W=P_{84}-P_{16}.
-$$
-
-The tolerance is
-
-$$
-T=\max(T_{\mathrm{floor}},\epsilon W),
-$$
-
-with development default $\epsilon=0.05$.
-
-Require changes in $P_{16},P_{50},P_{84}$ to remain below tolerance for several consecutive cumulative-batch comparisons (development default three).
-
-A human-readable rounded-value stability summary may also be logged, but literal decimal rounding is not the formal stopping rule.
-
-## 9.10 Maximum draw safety limit - historical basin proposal
-
-Sampling is bounded by `RH3_MAX_DRAWS`. If the convergence criteria are not met:
-
-- save all partial state/results/caches;
-- raise/catch a convergence exception;
-- mark the bin `BL_JOINT_NOT_CONVERGED`;
-- continue the larger run when practical;
-- return a non-zero overall status or explicit summary requiring inspection.
-
-If every basin cell has been evaluated, the result becomes exact over the discrete basin and sampling stops regardless of the batch criterion.
-
-## 9.11 Deterministic local refinement of the joint profile minimum - historical basin proposal
-
-Sampling identifies a promising region. Starting from the best sampled joint state:
-
-1. evaluate unevaluated neighboring RH3 cells;
-2. profile/refine $f_{A,\mathrm{BL}}$;
-3. move to a neighbor if it decreases $J$;
-4. repeat until no neighbor improves $J$.
-
-All BL fits are cached, so previously evaluated states are never repeated unnecessarily.
-
-## 9.12 Template-grid edge warnings
-
-Flag population solutions that accumulate against SSP-library boundaries in age or metallicity. A boundary-limited solution should not be reported as if its mean age/metallicity were fully constrained by the data.
-
-## 9.13 Population-difference distributions
-
-For every weighted solution, calculate directly
-
-$$
-\Delta\log Age=\log Age_A-\log Age_B
-$$
-
-and
-
-$$
-\Delta[M/H]=[M/H]_A-[M/H]_B.
-$$
-
-This preserves correlations between the two disk population measurements better than subtracting two separately summarized medians after the fact.
+Preserve Script 05 flags and distinguish missing or incomplete BL profiles, optimizer failures, gas bounds, fraction endpoints, multiple sampled local minima and SSP-grid edge weight. The local minima count describes the profile shape. Store the continuous light and mass shares on the template boundaries so science cuts can be chosen after reviewing the data. Formal uncertainty propagation belongs to Script 07.
 
 ---
 
 # 10. Script 7 — uncertainties, systematics, and final maps
 
-## 10.0 Planned execution walkthrough - not implemented
+## 10.0 Execution walkthrough
 
-Planned driver: `scripts/07_uncertainties_and_final_maps.py`; it does not yet exist. The end-to-end uncertainty strategy and development counts below remain a plan, not completed calculations or final validated settings. **Current contract, 2026-10-26:** two-component Monte Carlo/recovery experiments propagate the uncertainty of Scripts 05-06. Statistical variation of the coherent disk must occur through shared global parameters, with all bin velocities derived from the same realization, rather than independent per-bin basin choices. Fixed-global-model spectral experiments provide conditional uncertainties only. The exact global-model variation/refitting procedure remains to be settled; the old full Script 03 replay below is not an automatic requirement.
+Driver `scripts/07_uncertainties_and_final_maps.py` estimates sampling uncertainty under the adopted two-disk model and scalar-calibrated diagonal noise. Use one paired ensemble to measure the joint variation of the rotation curves, per-bin kinematics, and stellar populations.
 
-1. **Load the complete nominal analysis.** Gather the reviewed global disk model, refined RH3 measurements, BL population products, memberships, masks, noise calibration and convergence/quality records.
-2. **Specify and benchmark the uncertainty experiment.** Review the signal/noise-generation assumptions and what remains fixed or is refitted, measure actual realization runtime and set the configured budgets before launching a large ensemble.
-3. **Propagate the adopted statistical realizations.** Use two-component spectral models and the saved scalar-calibrated errors for noisy refits. To include coherent-model uncertainty, vary/refit shared global parameters under the reviewed Script 07 procedure and derive every bin's velocities from that same global realization. Fixed-global-velocity experiments remain conditional. Whole-galaxy Script 03 reruns are not automatically required; distinguish this inference experiment from the upstream zero-mean DRP stacking mocks used to measure spatial noise.
-4. **Accumulate measurement distributions and check convergence.** Track component kinematics, populations and their direct contrasts across realizations; use convergence/runtime evidence to determine the ensemble size rather than silently declaring a fixed count sufficient.
-5. **Evaluate analysis-choice robustness and template systematics separately.** Apply the reviewed variations and report their effects distinctly from conditional statistical uncertainties; do not automatically combine all categories into one error bar.
-6. **Construct maps, radial summaries and tables.** Map bin measurements and flags back onto the actual memberships, retaining weakly constrained results and their qualifications rather than inventing smooth spatial information.
-7. **Export an auditable final package.** Save machine-readable measurements, uncertainty/convergence summaries, systematic comparisons, figures and complete provenance. A software-complete run alone does not establish publication-ready scientific constraints.
+1. **Load the nominal analysis.** Gather the selected global disk model, the best-fit RH3 and BL spectra, the calibrated errors, and the saved masks and spatial memberships. Define fixed eligible bin sets before drawing noise.
+2. **Generate one mock observation.** Add a Gaussian draw to each saved best-fit RH3 and BL spectrum. Use separate noise draws for the two arms and retain the identity of the realization throughout the chain.
+3. **Refit the coherent model.** Evaluate the full nominal Script 03 velocity–fraction grid on the noisy RH3 spectra. Use the same grid bounds, spacing, and fraction planes as the real-data fit. The current grid has $17\times17\times9$ states per bin. Refit the selected Script 04 model on these scores.
+4. **Refit dispersions and populations.** Pass the recovered coherent velocities and the same noisy RH3 spectra to Script 05. Refit dispersions and RH3 fractions, then pass the recovered velocities and dispersions to Script 06 and fit the noisy BL spectra. Use the fraction search in §10.3 for these repeated fits.
+5. **Summarize 100 accepted realizations.** Save the recovered quantities for every draw, the run and bin failure records, and the statistical summaries on a common set of reporting radii and bin IDs.
+6. **Evaluate analysis choices and export the science package.** Report the sensitivity checks alongside the nominal results and statistical errors. Include machine-readable measurements, figures, and the provenance of the input products and mock ensemble.
 
-## 10.1 Statistical uncertainty should propagate through the full chain
+With `--kroupa-library`, Script 07 refits the BL populations using a supplied matched XSL Kroupa library. This separate comparison uses the nominal observed BL spectra, the calibrated errors, and all 99 fractions. Hold the kinematics, masks and other fit settings fixed to isolate the IMF effect. Report the changes in each disk and in their contrasts, including age, metallicity, stellar mass-to-light ratio, disk mass ratio and star formation history.
 
-The gold-standard realization is end-to-end:
+The science-package index links the original calibration and QA products alongside the exported results. The final science package brings together the bin maps, coherent model, kinematic and population products, PSF and noise QA, numerical tables, figures and provenance. Include an annotated integrated BL plus RH3 spectrum on a common rest-wavelength axis with the gap visible. Restore per-bin flux scales, sum over a matched modeled aperture and preserve the observed, total-fit, Disk A, Disk B and gas flux arrays.
 
-$$
-\mathrm{perturb\ RH3}
-\rightarrow
-\mathrm{RH3\ likelihood}
-\rightarrow
-\mathrm{global\ disk\ model}
-\rightarrow
-\mathrm{exact\ RH3\ extraction}
-\rightarrow
-\mathrm{perturb\ BL}
-\rightarrow
-\mathrm{population\ fit}.
-$$
+## 10.1 Coherent-model refits
 
-This captures the fact that BL populations are conditional on uncertain RH3 kinematics.
+Refit every parameter that was free in the selected nominal Script 04 fit, including the center, PA, inclination, systemic velocity, and radial speeds where applicable, using the same bounds. Hold the bin set, disk labels and rotation signs, radial extent and node locations, PSF and LSF treatment, continuum light proxy, and smoothing strength at their adopted nominal settings. This measures how the fitted quantities vary with noise for a fixed analysis procedure.
 
-## 10.2 Noise realizations
+Use the Script 04 search protocol and numerical settings adopted for the nominal fit, including the broad starting-model pool and the Powell velocity stability check in §7.7. Score candidates against each mock's own Script 03 cubes. Retain the restart outcome and convergence flags with each realization.
 
-Noise realizations for the final science uncertainty stage must preserve the measured spatial and residual scalar calibrations and be checked by injection/recovery. Script 1 spectral autocorrelation is diagnostic only; it does not define a production spectral covariance model.
+Script 07 fixes the RH3 bin set before drawing noise, using only bins with a usable best-fit coadded model spectrum in the original Script 05 handoff. Refit the global model on this same set for every mock. Use the intersection with the original usable Script 06 bins for BL population refits. Keep the original nominal failures outside the ensemble and count mock failures against the eligible set for each stage. Retain the original Script 04 fit as the nominal curve. If it used additional bins, record the difference in coverage when reporting the ensemble curve errors. On the 8143-1902 development run, omitting the three bins without usable Script 05 fits changed intrinsic node speeds by at most 0.13 km/s in matched Script 04 refits.
 
-## 10.3 Monte Carlo count is convergence-driven
+Replace a realization if it has no valid coherent fit or if at least 10% of the fixed eligible bins in either downstream stage lack a usable result after recovery. A finite, supported fit that stalled or reached the Powell cap remains usable and flagged. Apply the fraction within the corresponding stage and retain the draw ID, failure reason, and affected bins for every attempt. Below that threshold, retain successful measurements and record missing results for the affected bins. Boundary hits and weak constraints are recorded separately from unusable fits. Log the overall rejection fraction because preferential failure of difficult draws can narrow the reported spread.
 
-Do not choose an enormous fixed value such as $10^5$ by default. Monte Carlo sampling error falls approximately as
+## 10.2 Noise realizations and reported errors
 
-$$
-N_{\mathrm{MC}}^{-1/2}.
-$$
+Use the saved scalar-calibrated error vectors to generate and score the mocks, with the original spatial and residual factors applied once. Hold the calibration fixed across realizations. Draw independent Gaussian errors under the adopted diagonal-noise approximation. The uncertainty results are conditional on that calibration and noise model.
 
-A development strategy is:
+Keep the nominal measurement as the point estimate and report the sample standard deviation across usable realizations as the statistical error. Save the 16th and 84th percentiles to show asymmetric distributions, along with the number of usable draws and the frequency of boundary hits for each quantity. Compute Disk A minus Disk B and radial summaries within each draw before calculating their spread. The default target is 100 accepted realizations (`SCRIPT07_N_DRAWS`). Each quantity records its own usable-draw count. Rejections do not count toward the target.
 
-- minimum: about 200 realizations;
-- check every 50–100 new realizations;
-- expected final range: a few hundred to roughly 1000 if convergence supports it;
-- safety maximum: about 2000 until real timings and convergence behavior are known.
+## 10.3 Coarse-to-fine light-fraction search for Monte Carlo refits
 
-The final number is determined from both statistical convergence and measured runtime.
+Evaluate 21 coarse fractions at $f_A=0.01,0.06,\ldots,0.96,0.99$. Use the total chi-square scores under the fixed, calibrated noise. Let $S$ be the maximum coarse chi-square minus the minimum. Reuse the coarse fits and evaluate the remaining points of the full 0.01-spaced grid if any of the following conditions holds.
+
+- **Flat profile.** $S\leq 2$. A change this small across the sampled fraction range gives little guidance about which interval to refine.
+- **Departure from a quadratic.** Fit an unweighted least-squares quadratic to the 21 coarse scores as a function of fraction. Trigger a full scan if the largest absolute residual exceeds $\max(0.5,0.06S)$ in total chi-square units. The absolute term filters out small departures and the relative term allows proportionate variation in profiles with a large span. The maximum residual makes the check sensitive to individual abrupt changes.
+- **Competing minima.** At least two interior coarse points each have chi-square strictly lower than both immediate coarse neighbors. These minima can compete even when the overall profile is close to quadratic.
+
+If none of the conditions holds, fill in the 0.01-spaced points between the best coarse point and its immediate coarse neighbors, refining only inward at an endpoint. Select the lowest chi-square from the evaluated pPXF fits. A typical interior refinement uses 29 fits in total. A coarse or fine point with no usable score after recovery also triggers a full scan. If some states still have no usable score after a full scan, flag the incomplete profile and retain the lowest finite score. Nominal Scripts 05 and 06 use all 99 fractions.
+
+The cutoffs are empirical search heuristics chosen by replaying the shortcut on the existing test profiles. The 0.05 scan alone missed 5 of 575 complete RH3 profiles and 4 of 578 complete BL profiles. The three triggers together recovered all nine saved full-scan winners and averaged 62.3 RH3 fits and 38.0 BL fits per profile. A 7% relative residual threshold missed BL bin 564 in that replay. The numbers describe agreement with the saved scans on the development data. A one-draw pilot with input kinematics held fixed tested 40 noisy bins per arm against identical 99-state scans. All winners, RH3 dispersions and BL population summaries agreed. The shortcut averaged 81.1 fraction fits per RH3 bin and 48.0 per BL bin.
 
 ## 10.4 Parallelism
 
-Nominal bin-based stages may parallelize across PowerBins.
+Process draws in attempt order and parallelize independent bins within the active stage. This gives the terminal one owner for fit-recovery choices and keeps scratch storage bounded by one active draw. Workers each use one numerical-library thread. The user can change `--workers` on resume. Use the Script 05 individual and Script 06 grouped recovery prompts with up to three additional attempts per fraction. With `--non-interactive`, record Move on for unresolved prompts and continue within the usual quality rules.
 
-The end-to-end Monte Carlo should preferentially parallelize independent realizations across workers and avoid nested uncontrolled parallelism inside each realization.
+Restart with `--resume` and the same output directory. The saved draw ID, bin ID and arm regenerate identical noise. Verify the nominal inputs and the run fingerprint, skip committed draws, reuse completed bins or the completed whole-disk fit, and continue from the first unfinished part of the active draw. Pause at the configurable consecutive rejection limit (`SCRIPT07_MAX_CONSECUTIVE_REJECTIONS`, default 10), including in noninteractive mode. Resuming after review acknowledges the pause and preserves the full rejection history.
 
-After the first complete nominal pipeline run, benchmark one or more full realizations and forecast wall time for the user's available core count (e.g. 3 versus 20–40 cores).
+Store accepted and rejected attempts as compact numerical samples and audit records. After committing a draw, remove its run-owned grids, spectral intermediates and bin checkpoints. Create publication figures only during the final export. Final figures and tables can be recreated with `--resume` after all draws are committed.
 
 ## 10.5 Three uncertainty layers
 
@@ -1157,7 +993,7 @@ Keep distinct:
 
 ### Statistical uncertainty
 
-Noise/covariance realizations through the full inference chain.
+Gaussian spectral-noise realizations through the full inference chain under the adopted scalar-calibrated diagonal model.
 
 ### Analysis-choice robustness
 
@@ -1201,7 +1037,7 @@ $$
 
 
 
-and method-robustness differences between anchored and likelihood-propagated solutions.
+and differences from any approved robustness comparisons.
 
 ## 10.7 Spatial correlation / multiple comparisons
 
@@ -1223,12 +1059,22 @@ The final per-PowerBin table should contain at least:
 - $f_{A,\mathrm{BL}}$ and uncertainty/likelihood summaries;
 - age and metallicity for both disks;
 - direct disk contrasts;
-- one/two-component mock-calibration metrics;
-- analysis mode (direct/sampled) for Script 6;
-- convergence metrics;
+- two-component mock recovery, fit failure, and boundary-hit metrics;
+- approved BL gas line list, wavelength exclusions and calibrated errors;
+- usable-draw counts and sample standard deviations, with 16th and 84th percentiles;
 - standardized quality flags.
 
 An Astropy ECSV/FITS table is preferred internally because it preserves metadata and units. A journal machine-readable-table format can be generated at publication time.
+
+## 10.9 Aperture-wide stellar populations and light fractions
+
+Report one row per disk for the fitted KCWI aperture alongside the resolved measurements. Use the adopted nominal footprint and eligible BL bins for both disks, and retain the aperture definition and usable coverage for each draw. The spatial weighting follows [Coccato et al. (2013), §4.3 and Table 2](https://arxiv.org/pdf/1210.7807#page=7), who reported component luminosity-weighted averages and radial profiles from spatially resolved IFU measurements. Script 07 applies that spatial weighting to the full-spectrum pPXF population fits. See [the reference index](references/README.md#crd-decomposition-and-detectability-precedents) and BibTeX key `Coccato2013`.
+
+For each disk and bin, use the disk's stellar template weights in the rest-frame 4800–5300 Å BL reference band and restore the saved per-bin flux scale before summing across bins. The input spectra already coadd the spaxels within each bin, so each bin contributes its recovered total light once. Compute the aperture mean of each disk's age and metallicity by weighting the bin measurements by that disk's restored reference-band light. Report the arithmetic mean age in Gyr and the mean of log age in log years separately, and report metallicity as the weighted mean of the SSP [M/H] values in dex. For the mass-weighted counterparts, use that disk's inferred surviving stellar mass in each bin, restoring the bin scale and applying the Script 06 XSL mass convention.
+
+For the BL aperture light fractions, divide each disk's summed stellar reference-band light by the sum for both disks over the same bins. The fraction uses stellar light only. Label the passband and fitted footprint in the table. Derive the aperture mass-to-light ratio from summed surviving mass divided by summed luminosity in the configured M/L filter, which defaults to SDSS `g`.
+
+Calculate the aperture statistics and Disk A minus Disk B contrasts separately for each realization. Report the nominal result as the point estimate and the across-draw sample standard deviation, 16th and 84th percentiles, and number of usable realizations. Track missing-bin coverage in the draw records so the aperture summary can be interpreted alongside the resolved maps.
 
 ---
 
@@ -1301,8 +1147,8 @@ The following are intentionally **not frozen scientific truths**:
 - exact geometry-prior widths;
 - BL multiplicative-polynomial degree;
 - final RH3 velocity-grid spacing/extent;
-- exact one/two-component mock calibration and reliability thresholds;
-- final Monte Carlo realization count;
+- reliability thresholds for interpreting weak two-component measurements;
+- whether a particular target warrants additional Monte Carlo realizations beyond the initial 100;
 - final worker/core count;
 - whether full spatial covariance or a validated approximation is computationally practical;
 - whether the 26-neighbor basin definition is optimal for real likelihood surfaces.
@@ -1321,10 +1167,10 @@ A target should not be treated as publication-ready merely because all scripts e
 - grid-edge warnings are resolved or understood;
 - velocity-grid convergence has been demonstrated;
 - 2σ-limited and full-aperture global solutions have been compared;
-- one/two-component support has been mock-calibrated;
+- two-component recovery and its limitations have been assessed on mocks;
 - BL population fits do not unknowingly sit on template-grid boundaries;
-- Script-6 propagation converges or exact basin enumeration is achieved;
-- end-to-end MC uncertainties converge;
+- the approved Script 06 BL fraction profiles and population flags have been reviewed;
+- end-to-end Monte Carlo error bars and draw failure rates have been reviewed;
 - major analysis-choice/systematic tests have been performed;
 - all important diagnostics have been inspected and documented.
 
